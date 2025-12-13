@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -44,7 +44,6 @@ type
     fModelPrepared: Boolean;
     class var fPartials: TSynMustachePartials;
     class var fHelpers: TSynMustacheHelpers;
-    class var fSerializerPool: IIntfObjectPool;
     var FJSONModelAsString: string;
     procedure LoadPartials;
     procedure LoadHelpers;
@@ -54,6 +53,7 @@ type
   public
     procedure Execute(const ViewName: string; const Builder: TStringBuilder); override;
     constructor Create(const AEngine: TMVCEngine; const AWebContext: TWebContext;
+      const AController: TMVCController;
       const AViewModel: TMVCViewDataObject;
       const AContentType: string); override;
     class destructor Destroy;
@@ -78,6 +78,7 @@ type
 implementation
 
 uses
+  Types,
   JsonDataObjects,
   MVCFramework.Serializer.Defaults,
   MVCFramework.Serializer.Intf,
@@ -93,16 +94,13 @@ type
   TSynMustacheAccess = class(TSynMustache)
   end;
 
-
-
-
 var
   gPartialsLoaded : Boolean = False;
   gHelpersLoaded : Boolean = False;
 
 constructor TMVCMustacheViewEngine.Create(const AEngine: TMVCEngine;
-  const AWebContext: TWebContext; const AViewModel: TMVCViewDataObject;
-  const AContentType: string);
+  const AWebContext: TWebContext; const AController: TMVCController;
+  const AViewModel: TMVCViewDataObject; const AContentType: string);
 begin
   inherited;
   fModelPrepared := False;
@@ -112,17 +110,11 @@ end;
 
 class constructor TMVCMustacheViewEngine.Create;
 begin
-  fSerializerPool := MVCFramework.IntfObjectPool.TIntfObjectPool.Create(10000, 10,1,
-    function: IInterface
-    begin
-      Result := TMVCJsonDataObjectsSerializer.Create(nil);
-      RegisterOptionalCustomTypesSerializers(Result as IMVCSerializer);
-    end);
 end;
 
 class destructor TMVCMustacheViewEngine.Destroy;
 begin
-  fPartials.Free;
+
 end;
 
 function TMVCMustacheViewEngine.RenderJSON(lViewEngine: TSynMustache; const JSON: UTF8String; Partials: TSynMustachePartials;
@@ -136,11 +128,12 @@ var
   lViewFileName: string;
   lViewTemplate: UTF8String;
   lViewEngine: TSynMustache;
+  lActualCalculatedFileName: String;
 begin
   PrepareModels;
-  lViewFileName := GetRealFileName(ViewName);
-  if not FileExists(lViewFileName) then
-    raise EMVCFrameworkViewException.CreateFmt('View [%s] not found', [ViewName]);
+  lViewFileName := GetRealFileName(ViewName, lActualCalculatedFileName);
+  if lViewFileName.IsEmpty then
+    raise EMVCSSVException.CreateFmt('View [%s] not found', [TPath.GetFileName(lActualCalculatedFileName)]);
   lViewTemplate := StringToUTF8(TFile.ReadAllText(lViewFileName, TEncoding.UTF8));
   lViewEngine := TSynMustache.Parse(lViewTemplate);
   Builder.Append(UTF8Tostring(RenderJSON(lViewEngine, FJSONModelAsString, fPartials, fHelpers, nil, false)));
@@ -173,7 +166,7 @@ var
   lViewsExtension: string;
   lViewPath: string;
   lPartialName: String;
-  lPartialFileNames: TArray<string>;
+  lPartialFileNames: TStringDynArray;
   I: Integer;
 begin
   if gPartialsLoaded then
@@ -187,7 +180,9 @@ begin
       if not gPartialsLoaded then
       begin
         lViewsExtension := Config[TMVCConfigKey.DefaultViewFileExtension];
-        lViewPath := Config[TMVCConfigKey.ViewPath];
+        lViewPath := Config.Value[TMVCConfigKey.ViewPath];
+        if TPath.IsRelativePath(lViewPath) then
+          lViewPath := TMVCBase.GetApplicationFileNamePath + lViewPath;
         lPartialFileNames := TDirectory.GetFiles(lViewPath, '*.' + lViewsExtension, TSearchOption.soAllDirectories);
         FreeAndNil(fPartials);
         fPartials := TSynMustachePartials.Create;
@@ -197,7 +192,7 @@ begin
             .Remove(lPartialFileNames[i].Length - lViewsExtension.Length - 1)
             .Replace(TPath.DirectorySeparatorChar, '/');
           lPartialName := lPartialName.Remove(0, lViewPath.Length + 1);
-          fPartials.Add(lPartialName, TFile.ReadAllText(lPartialFileNames[i]));
+          fPartials.Add(lPartialName, TFile.ReadAllText(lPartialFileNames[i], TEncoding.UTF8));
         end;
         gPartialsLoaded := SameText(Config[TMVCConfigKey.ViewCache], 'true');
       end;
@@ -213,7 +208,7 @@ end;
 procedure TMVCMustacheViewEngine.PrepareModels;
 var
   DataObj: TPair<string, TValue>;
-  lSer: IMVCSerializer;
+  lSer: TMVCJsonDataObjectsSerializer;
   lJSONModel: TJsonObject;
 begin
   if fModelPrepared then
@@ -221,38 +216,24 @@ begin
     Exit;
   end;
 
-  if Assigned(FJSONModel) and (not Assigned(ViewModel)) then
-  begin
-    // if only jsonmodel is <> nil then we take the "fast path"
-    FJSONModelAsString := FJSONModel.ToJSON(False);
-  end
-  else
-  begin
-    lSer := fSerializerPool.GetFromPool(True) as IMVCSerializer;
+  lSer := TMVCJsonDataObjectsSerializer.Create(nil);
+  try
+    RegisterOptionalCustomTypesSerializers(lSer);
+    lJSONModel := TJsonObject.Create;
     try
-      if Assigned(FJSONModel) then
+      if Assigned(ViewModel) then
       begin
-        lJSONModel := FJSONModel.Clone as TJsonObject;
-      end
-      else
-      begin
-        lJSONModel := TJsonObject.Create;
-      end;
-      try
-        if Assigned(ViewModel) then
+        for DataObj in ViewModel do
         begin
-          for DataObj in ViewModel do
-          begin
-            TMVCJsonDataObjectsSerializer(lSer).TValueToJSONObjectProperty(lJSONModel, DataObj.Key, DataObj.Value, TMVCSerializationType.stDefault, nil, nil);
-          end;
+          TMVCJsonDataObjectsSerializer(lSer).TValueToJSONObjectProperty(lJSONModel, DataObj.Key, DataObj.Value, TMVCSerializationType.stDefault, nil, nil);
         end;
-        FJSONModelAsString := lJSONModel.ToJSON(False);
-      finally
-        lJSONModel.Free;
       end;
+      FJSONModelAsString := lJSONModel.ToJSON(False);
     finally
-      fSerializerPool.ReleaseToPool(lSer)
+      lJSONModel.Free;
     end;
+  finally
+    lSer.Free;
   end;
   fModelPrepared := True;
 end;
@@ -294,5 +275,12 @@ begin
   Result := System.SysUtils.UpperCase(Value);
 end;
 
+
+
+initialization
+
+finalization
+
+FreeAndNil(TMVCMustacheViewEngine.fPartials);
 
 end.

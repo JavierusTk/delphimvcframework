@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -31,6 +31,8 @@
 // ***************************************************************************
 
 unit DMVC.Expert.Forms.NewProjectWizard;
+
+{$I ..\sources\dmvcframework.inc}
 
 interface
 
@@ -61,7 +63,7 @@ type
     edtWebModuleName: TEdit;
     lblWbModule: TLabel;
     edtServerPort: TEdit;
-    Label2: TLabel;
+    lblServerPort: TLabel;
     Image1: TImage;
     lblFrameworkVersion: TLabel;
     Panel2: TPanel;
@@ -72,7 +74,6 @@ type
     edtControllerClassName: TEdit;
     chkCreateActionFiltersMethods: TCheckBox;
     chkCreateCRUDMethods: TCheckBox;
-    chkCreateControllerUnit: TCheckBox;
     Shape1: TShape;
     GroupBox1: TGroupBox;
     chkAnalyticsMiddleware: TCheckBox;
@@ -98,11 +99,15 @@ type
     chkCustomConfigDotEnv: TCheckBox;
     chkProfileActions: TCheckBox;
     lblPATREON: TLabel;
-    chkMustache: TCheckBox;
     chkServicesContainer: TCheckBox;
     chkSqids: TCheckBox;
     rgNameCase: TRadioGroup;
-    procedure chkCreateControllerUnitClick(Sender: TObject);
+    rgSSV: TRadioGroup;
+    Image2: TImage;
+    Shape2: TShape;
+    rgServerType: TRadioGroup;
+    chkRateLimit: TCheckBox;
+    chkWebSocketServer: TCheckBox;
     procedure FormCreate(Sender: TObject);
     procedure Image1Click(Sender: TObject);
     procedure lblBookMouseEnter(Sender: TObject);
@@ -117,6 +122,7 @@ type
     procedure lblPATREONClick(Sender: TObject);
     procedure lblPATREONMouseEnter(Sender: TObject);
     procedure lblPATREONMouseLeave(Sender: TObject);
+    procedure rgSSVClick(Sender: TObject);
   private
     { Private declarations }
     fModel: TJsonObject;
@@ -157,6 +163,14 @@ uses
 
 procedure TfrmDMVCNewProject.ApplicationEventsIdle(Sender: TObject;
   var Done: Boolean);
+  procedure SyncServerPort(const aPort: String);
+  begin
+    if String(edtServerPort.Text).IsEmpty or (edtServerPort.Text = edtServerPort.TextHint) then
+    begin
+      edtServerPort.Text := aPort;
+      edtServerPort.TextHint := aPort;
+    end;
+  end;
 begin
   EdtFDConnDefFileName.Enabled := chkActiveRecord.Checked;
   EdtConnDefName.Enabled := chkActiveRecord.Checked;
@@ -166,22 +180,39 @@ begin
   begin
     chkProfileActions.Checked := False;
   end;
-end;
-
-procedure TfrmDMVCNewProject.btnOKClick(Sender: TObject);
-begin
-  if chkActiveRecord.Checked then
-  begin
-    ShowMessage('Remember to include required FireDAC units in your project');
+  case rgServerType.ItemIndex of
+    0: begin //http
+         lblServerPort.Caption := 'HTTP Server Port';
+         SyncServerPort('8080');
+       end;
+    1: begin //https
+         lblServerPort.Caption := 'HTTPS Server Port';
+         SyncServerPort('443');
+       end;
+    2: begin //fastcgi
+         lblServerPort.Caption := 'FastCGI Server Port';
+         SyncServerPort('9000');
+       end;
   end;
 end;
 
-procedure TfrmDMVCNewProject.chkCreateControllerUnitClick(Sender: TObject);
+procedure TfrmDMVCNewProject.btnOKClick(Sender: TObject);
+var
+  lHints: TArray<String>;
 begin
-  chkCreateIndexMethod.Enabled := chkCreateControllerUnit.Checked;
-  chkCreateActionFiltersMethods.Enabled := chkCreateControllerUnit.Checked;
-  chkCreateCRUDMethods.Enabled := chkCreateControllerUnit.Checked;
-  edtControllerClassName.Enabled := chkCreateControllerUnit.Checked;
+  lHints := [];
+  if chkActiveRecord.Checked then
+  begin
+    lHints := lHints + ['- Include required FireDAC units in your project'];
+  end;
+  if rgServerType.ItemIndex = 1 then
+  begin
+    lHints := lHints + ['- Install TaurusTLS from GetIT or directly from github (https://github.com/TurboPack/indy_extras)'];
+  end;
+  if Length(lHints) > 0 then
+  begin
+    ShowMessage('Remember to:' + sLineBreak + String.Join(sLineBreak, lHints));
+  end;
 end;
 
 procedure TfrmDMVCNewProject.FormCreate(Sender: TObject);
@@ -191,8 +222,14 @@ begin
   edtServerPort.TextHint := TDefaultValues.sDefaultServerPort;
   lblFrameworkVersion.Caption := 'dmvcframework-' + DMVCFRAMEWORK_VERSION;
   chkJSONRPC.Checked := False;
+  chkWebSocketServer.Checked := False;
   lblCopyRight.Caption := TMVCConstants.COPYRIGHT;
   fModel := TJsonObject.Create;
+
+  {$IF not Defined(FASTCGI)}
+  rgServerType.Items.Delete(rgServerType.Items.Count-1);
+  rgServerType.ItemIndex := 0;
+  {$ENDIF}
 end;
 
 procedure TfrmDMVCNewProject.FormDestroy(Sender: TObject);
@@ -282,6 +319,18 @@ begin
   lblPATREON.Font.Style := lblPATREON.Font.Style - [fsUnderline];
 end;
 
+procedure TfrmDMVCNewProject.rgSSVClick(Sender: TObject);
+begin
+{$if not Defined(WEBSTENCILS)}
+  if SameText(rgSSV.Items[rgSSV.ItemIndex], 'webstencils') then
+  begin
+    ShowMessage('This Delphi version doesn''t support WebStencils, so DelphiMVCFramework cannot use it.' +
+      sLineBreak + 'Consider to use TemplatePro.');
+    rgSSV.ItemIndex := 1;
+  end;
+{$endif}
+end;
+
 procedure TfrmDMVCNewProject.lblBookClick(Sender: TObject);
 begin
   ShellExecute(0, PChar('open'),
@@ -327,7 +376,7 @@ end;
 
 function TfrmDMVCNewProject.GetCreateControllerUnit: boolean;
 begin
-  Result := chkCreateControllerUnit.Checked;
+  Result := True;
 end;
 
 function TfrmDMVCNewProject.GetCreateCRUDMethods: boolean;
@@ -343,7 +392,9 @@ begin
   fModel.B[TConfigKey.program_msheap] := chkMSHeap.Checked;
   fModel.B[TConfigKey.program_sqids] := chkSqids.Checked;
   fModel.B[TConfigKey.program_dotenv] := chkCustomConfigDotEnv.Checked;
-  fModel.B[TConfigKey.program_ssv_mustache] := chkMustache.Checked;
+  fModel.B[TConfigKey.program_ssv_templatepro] := SameText(rgSSV.Items[rgSSV.ItemIndex], 'templatepro');
+  fModel.B[TConfigKey.program_ssv_webstencils] := SameText(rgSSV.Items[rgSSV.ItemIndex], 'webstencils');
+  fModel.B[TConfigKey.program_ssv_mustache] := SameText(rgSSV.Items[rgSSV.ItemIndex], 'mustache');
   fModel.B[TConfigKey.program_service_container_generate] := chkServicesContainer.Checked;
   fModel.S[TConfigKey.program_service_container_unit_name] := 'TBA';
   fModel.S[TConfigKey.controller_unit_name] := 'TBA';
@@ -352,12 +403,23 @@ begin
   fModel.B[TConfigKey.controller_action_filters_generate] :=  chkCreateActionFiltersMethods.Checked;
   fModel.B[TConfigKey.controller_crud_methods_generate] :=  chkCreateCRUDMethods.Checked;
   fModel.B[TConfigKey.controller_actions_profiling_generate] :=  chkProfileActions.Checked;
-  fModel.B[TConfigKey.entity_generate] :=  fModel.B[TConfigKey.controller_crud_methods_generate];
+  fModel.B[TConfigKey.entity_generate] := fModel.B[TConfigKey.controller_crud_methods_generate] or fModel.B[TConfigKey.program_service_container_generate];
   fModel.S[TConfigKey.entity_classname] :=  'TPerson';
   fModel.B[TConfigKey.jsonrpc_generate] :=  GetCreateJSONRPCInterface;
   fModel.S[TConfigKey.jsonrpc_classname] :=  GetJSONRPCClassName;
   fModel.S[TConfigKey.jsonrpc_unit_name] := 'TBA';
   fModel.S[TConfigKey.serializer_name_case] := GetEnumName(TypeInfo(TMVCNameCase), rgNameCase.ItemIndex + 1);
+  fModel.S[TConfigKey.websocket_unit_name] := 'WebSocketServerU';
+  fModel.B[TConfigKey.websocket_generate] := chkWebSocketServer.Checked;
+
+  case rgServerType.ItemIndex of
+    0: fModel.S[TConfigKey.program_type] := TProgramTypes.HTTP_CONSOLE;
+    1: fModel.S[TConfigKey.program_type] := TProgramTypes.HTTPS_CONSOLE;
+    2: fModel.S[TConfigKey.program_type] := TProgramTypes.FASTCGI_CONSOLE;
+    else
+      raise Exception.Create('Invalid Server Type');
+  end;
+
   //webmodule
 
   fModel.S[TConfigKey.webmodule_classname] :=  GetWebModuleClassName;
@@ -367,6 +429,7 @@ begin
   fModel.B[TConfigKey.webmodule_middleware_compression] :=  chkCompression.Checked;
   fModel.B[TConfigKey.webmodule_middleware_etag] :=  chkETAG.Checked;
   fModel.B[TConfigKey.webmodule_middleware_cors] :=  chkCORS.Checked;
+  fModel.B[TConfigKey.webmodule_middleware_ratelimit] :=  chkRateLimit.Checked;
   fModel.B[TConfigKey.webmodule_middleware_activerecord] :=  chkActiveRecord.Checked;
   fModel.S[TConfigKey.webmodule_middleware_activerecord_con_def_name] :=  EdtConnDefName.Text;
   fModel.S[TConfigKey.webmodule_middleware_activerecord_con_def_filename] :=  EdtFDConnDefFileName.Text;

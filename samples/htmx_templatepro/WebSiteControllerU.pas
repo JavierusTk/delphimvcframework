@@ -11,6 +11,7 @@ type
   TWebSiteController = class(TMVCController)
   protected
     function GeneratePeopleListAsCSV: String;
+    procedure OnBeforeAction(AContext: TWebContext; const AActionName: string; var AHandled: Boolean); override;
   public
     [MVCPath]
     [MVCHTTPMethods([httpGET])]
@@ -23,16 +24,19 @@ type
     [MVCPath]
     [MVCHTTPMethods([httpPOST])]
     [MVCConsumes(TMVCMediaType.APPLICATION_FORM_URLENCODED)]
+    [MVCProduces(TMVCMediaType.APPLICATION_JSON)]
     procedure SavePerson(
-      const [MVCFromContentField('first_name')] FirstName: String;
-      const [MVCFromContentField('last_name')] LastName: String;
+      const [MVCFromContentField('guid','')] GUID: String;
+      const [MVCFromContentField('first_name', '')] FirstName: String;
+      const [MVCFromContentField('last_name', '')] LastName: String;
       const [MVCFromContentField('age', 0)] Age: Integer;
-      const [MVCFromContentField('items')] Devices: TArray<String>
+      const [MVCFromContentField('items')] Devices: TArray<String>;
+      const [MVCFromContentField('csrf_token', '')] CSRF: String
     );
 
-    [MVCPath('/delete/($guid)')]
+    [MVCPath('/($guid)')]
     [MVCHTTPMethods([httpDELETE])]
-    procedure DeletePerson(const guid: string);
+    function DeletePerson(const guid: string): String;
 
     [MVCPath('/new')]
     [MVCHTTPMethods([httpGET])]
@@ -65,16 +69,16 @@ implementation
 
 { TWebSiteController }
 
-uses DAL, System.SysUtils, Web.HTTPApp;
+uses DAL, System.SysUtils, Web.HTTPApp, MVCFramework.Utils;
 
-procedure TWebSiteController.DeletePerson(const guid: string);
+function TWebSiteController.DeletePerson(const guid: string): String;
 var
   LDAL: IPeopleDAL;
 begin
   LDAL := TServicesFactory.GetPeopleDAL;
   LDAL.DeleteByGUID(GUID);
-  Context.Response.HXSetLocation('/people');
-  RenderStatusMessage(HTTP_STATUS.OK);
+  Context.Response.HXSetReplaceUrl('/people');
+  Result := PeopleSearch('');
 end;
 
 function TWebSiteController.EditPerson(guid: string): String;
@@ -83,6 +87,8 @@ var
   lPerson: TPerson;
   lDevices: TDeviceList;
   lItem: TDevice;
+  lICSRFTokenManager: ICSRFTokenManager;
+  lToken: string;
 begin
   LDAL := TServicesFactory.GetPeopleDAL;
   lPerson := LDAL.GetPersonByGUID(guid);
@@ -94,8 +100,12 @@ begin
       begin
         lItem.Selected := lPerson.Items.Contains(lItem.DeviceName);
       end;
+      lICSRFTokenManager := TCSRFTokenManager.Create;
+      lToken := lICSRFTokenManager.GenerateToken(CSRF_SECRET, CSRF_SECONDS_TIMEOUT);
+      Session['csrf_token'] := lToken;
+      ViewData['csrf_token'] := lToken;
       ViewData['deviceslist'] := lDevices;
-      Result := Page(['editperson']);
+      Result := RenderView('editperson');
     finally
       lDevices.Free;
     end;
@@ -120,7 +130,7 @@ begin
   lPeople := LDAL.GetPeople;
   try
     ViewData['people'] := lPeople;
-    Result := Page(['people_list.csv']);
+    Result := RenderView('people_list.csv');
   finally
     lPeople.Free;
   end;
@@ -134,17 +144,29 @@ end;
 function TWebSiteController.NewPerson: String;
 var
   LDAL: IPeopleDAL;
+  lICSRFTokenManager: ICSRFTokenManager;
   lDevices: TDeviceList;
+  lToken: string;
 begin
   LDAL := TServicesFactory.GetPeopleDAL;
   lDevices := LDAL.GetDevicesList;
   try
+    lICSRFTokenManager := TCSRFTokenManager.Create();
+    lToken := lICSRFTokenManager.GenerateToken(CSRF_SECRET, CSRF_SECONDS_TIMEOUT);
+    Session['csrf_token'] := lToken;
+    ViewData['csrf_token'] := lToken;
     ViewData['deviceslist'] := lDevices;
-    ViewData['ishtmx'] := Context.Request.IsHTMX;
-    Result := Page(['editperson']);
+    Result := RenderView('editperson');
   finally
     lDevices.Free;
   end;
+end;
+
+procedure TWebSiteController.OnBeforeAction(AContext: TWebContext;
+  const AActionName: string; var AHandled: Boolean);
+begin
+  inherited;
+  ViewData['ishtmx'] := AContext.Request.IsHTMX;
 end;
 
 function TWebSiteController.PeopleSearch(const SearchText: String): String;
@@ -157,7 +179,6 @@ begin
   lPeople := LDAL.GetPeople(SearchText);
   try
     ViewData['people'] := lPeople;
-    ViewData['ishtmx'] := Context.Request.IsHTMX;
     if Context.Request.IsHTMX then
     begin
       if SearchText.IsEmpty then
@@ -166,27 +187,36 @@ begin
         Context.Response.HXSetPushUrl('/people?q=' + SearchText);
     end;
     ViewData['q'] := SearchText;
-    Result := PageFragment(['people_list']);
+    Result := RenderView('people_list');
   finally
     lPeople.Free;
   end;
 end;
 
 procedure TWebSiteController.SavePerson(
+      const GUID: String;
       const FirstName: String;
       const LastName: String;
       const Age: Integer;
-      const Devices: TArray<String>);
+      const Devices: TArray<String>;
+      const CSRF: String);
 var
   LPeopleDAL: IPeopleDAL;
 begin
+  var lCSRF: ICSRFTokenManager := TCSRFTokenManager.Create;
+  if (Session['csrf_token'] <> CSRF) or (lCSRF.IsTokenExpired(CSRF_SECRET, CSRF)) then
+  begin
+    raise EMVCException.Create(HTTP_STATUS.BadRequest, 'Data entry is expired or has been tampered. Please, restart editing.');
+  end;
+
   if FirstName.IsEmpty or LastName.IsEmpty or (Age <= 0) then
   begin
-    { TODO -oDaniele -cGeneral : Show how to properly render an exception }
-    raise EMVCException.Create('Invalid data', 'First name, last name and age are not optional', 0);
+    raise EMVCException.Create(HTTP_STATUS.BadRequest, 'First name, last name and age are not optional');
   end;
 
   LPeopleDAL := TServicesFactory.GetPeopleDAL;
+  if not GUID.IsEmpty then
+    LPeopleDAL.DeleteByGUID(GUID);
   LPeopleDAL.AddPerson(FirstName, LastName, Age, Devices);
   Context.Response.HXSetRedirect('/people');
 end;
@@ -195,7 +225,7 @@ function TWebSiteController.ShowModal: String;
 begin
   ViewData['message'] := 'Do you really want to delete row?';
   ViewData['title'] := 'Bootstrap Modal Dialog';
-  Result := Page(['modal']);
+  Result := RenderView('modal');
 end;
 
 function TWebSiteController.ShowModalForDelete(guid: string): String;
@@ -203,7 +233,7 @@ begin
   ViewData['title'] := 'Bootstrap Modal Dialog';
   ViewData['message'] := 'Do you really want to delete row?';
   ViewData['guid'] := guid;
-  Result := Page(['modal']);
+  Result := RenderView('modal');
 end;
 
 end.

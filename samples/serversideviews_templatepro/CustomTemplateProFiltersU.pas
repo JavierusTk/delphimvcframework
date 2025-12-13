@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -27,21 +27,51 @@ unit CustomTemplateProFiltersU;
 interface
 
 uses
-  System.Rtti;
+  TemplatePro, System.Rtti;
 
-function MyHelper1(const aValue: TValue; const aParameters: TArray<string>): string;
-function MyHelper2(const aValue: TValue; const aParameters: TArray<string>): string;
+procedure TemplateProContextConfigure;
 
 implementation
 
-function MyHelper1(const aValue: TValue; const aParameters: TArray<string>): string;
+uses
+  System.SysUtils;
+
+function MyHelper1(const aValue: TValue; const aParameters: TArray<TFilterParameter>): TValue;
 begin
   Result := aValue.ToString +  ' (I''m The MyHelper1)';
 end;
 
-function MyHelper2(const aValue: TValue; const aParameters: TArray<string>): string;
+function MyHelper2(const aValue: TValue; const aParameters: TArray<TFilterParameter>): TValue;
 begin
   Result := aValue.ToString +  ' (I''m The MyHelper2)';
+end;
+
+
+procedure TemplateProContextConfigure;
+begin
+  TTProConfiguration.OnContextConfiguration := procedure(const CompiledTemplate: ITProCompiledTemplate)
+  begin
+    // These filters will be available to the TemplatePro views as if they were the standard ones
+    CompiledTemplate.AddFilter('MyHelper1', MyHelper1);
+    CompiledTemplate.AddFilter('MyHelper2', MyHelper2);
+
+    CompiledTemplate.OnGetValue :=
+      procedure(const DataSource, Members: string; var Value: TValue; var Handled: Boolean)
+      begin
+        if SameText(DataSource, 'ext1') then
+        begin
+          if Members.IsEmpty then
+          begin
+            Value := 'External Value Ext1'
+          end
+          else
+          begin
+            Value := 'Reading ext1.' + Members;
+          end;
+          Handled := True;
+        end;
+      end
+  end;
 end;
 
 

@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -242,16 +242,17 @@ type
 
   TJSONUtils = record
   private
-    class function JSONObjectToRecord<T: record >(const JSONObject: TJsonObject;
-      const Serializer: TMVCJsonDataObjectsSerializer): T; overload; static; inline;
+    class function InternalJSONObjectToRecord<T: record >(const JSONObject: TJsonObject; const Serializer: TMVCJsonDataObjectsSerializer): T; overload; static;
   public
     // records
-    class function JSONObjectToRecord<T: record >(const JSONObject: TJsonObject): T; overload; static;
-    class function JSONArrayToArrayOfRecord<T: record >(const JSONArray: TJsonArray): TArray<T>; overload; static;
+    class function JSONObjectToRecord<T: record >(const JSONObject: TJDOJSONObject): T; overload; static;
+    class function JSONObjectToRecord<T: record>(const JSONRPCResponse: IInterface): T; overload; static;
+    class function JSONArrayToArrayOfRecord<T: record >(const JSONArray: TJDOJsonArray): TArray<T>; overload; static;
+    class function JSONArrayToArrayOfRecord<T: record>(const JSONRPCResponse: IInterface): TArray<T>; overload; static;
+
     // objects
     class function JsonObjectToObject<T: class, constructor>(const JSONObject: TJsonObject): T; overload; static;
-    class function JSONArrayToListOf<T: class, constructor>(const JSONArray: TJsonArray): TObjectList<T>;
-      overload; static;
+    class function JSONArrayToListOf<T: class, constructor>(const JSONArray: TJsonArray): TObjectList<T>; overload; static;
   end;
 
 procedure TValueToJSONObjectPropertyEx(const Value: TValue; const JSON: TJDOJsonObject; const KeyName: string);
@@ -270,10 +271,12 @@ const
 implementation
 
 uses
+  System.SysConst,
   MVCFramework.Serializer.JsonDataObjects.CustomTypes,
   MVCFramework.Logger,
   MVCFramework.DataSet.Utils,
-  MVCFramework.Nullables;
+  MVCFramework.Nullables,
+  MVCFramework.JSONRPC;
 
 function SelectRootNodeOrWholeObject(const RootNode: string; const JSONObject: TJsonObject): TJsonObject; inline;
 begin
@@ -292,20 +295,20 @@ end;
 procedure TMVCJsonDataObjectsSerializer.AfterConstruction;
 var
   lStreamSerializer: IMVCTypeSerializer;
-  lDataSetHolderSerializer: TMVCDataSetHolderSerializer;
   fObjectDictionarySerializer: TMVCObjectDictionarySerializer;
 begin
   inherited AfterConstruction;
-  lDataSetHolderSerializer := TMVCDataSetHolderSerializer.Create;
-  GetTypeSerializers.Add(TypeInfo(TDataSetHolder), lDataSetHolderSerializer);
   lStreamSerializer := TMVCStreamSerializerJsonDataObject.Create;
   GetTypeSerializers.Add(TypeInfo(TStream), lStreamSerializer);
   GetTypeSerializers.Add(TypeInfo(TStringStream), lStreamSerializer);
   GetTypeSerializers.Add(TypeInfo(TFileStream), lStreamSerializer);
   GetTypeSerializers.Add(TypeInfo(TMemoryStream), lStreamSerializer);
+  GetTypeSerializers.Add(TypeInfo(TBytesStream), lStreamSerializer);
+
   fStringDictionarySerializer := TMVCStringDictionarySerializer.Create;
   GetTypeSerializers.Add(TypeInfo(TMVCStringDictionary), fStringDictionarySerializer);
   GetTypeSerializers.Add(TypeInfo(TGUID), TMVCGUIDSerializer.Create);
+
   fObjectDictionarySerializer := TMVCObjectDictionarySerializer.Create(self);
   GetTypeSerializers.Add(TypeInfo(TMVCObjectDictionary), fObjectDictionarySerializer);
   GetTypeSerializers.Add(TypeInfo(TMVCListOfString { TList<string> } ), TMVCListOfStringSerializer.Create);
@@ -841,7 +844,7 @@ begin
             AJsonArray.Add(ADataSet.Fields[lField.I].AsLargeInt);
 {$IFDEF TOKYOORBETTER}
           ftGuid:
-            AJsonArray.Add(GUIDToString(ADataSet.Fields[lField.I].AsGuid));
+            AJsonArray.Add(TMVCSerializerHelper.ApplyGuidSerialization(gstUseDefault, ADataSet.Fields[lField.I].AsGuid));
 {$ENDIF}
           ftSingle, ftFloat:
             AJsonArray.Add(ADataSet.Fields[lField.I].AsFloat);
@@ -863,6 +866,9 @@ begin
 
           ftTimeStamp:
             AJsonArray.Add(DateTimeToISOTimeStamp(SQLTimeStampToDateTime(ADataSet.Fields[lField.I].AsSQLTimeStamp)));
+
+          ftTimeStampOffset:
+            AJsonArray.Add(DateTimeToISOTimeStamp(SQLTimeStampOffsetToDateTime(ADataSet.Fields[lField.I].AsSQLTimeStampOffset)));
 
           ftCurrency:
             AJsonArray.Add(ADataSet.Fields[lField.I].AsCurrency);
@@ -1012,7 +1018,7 @@ begin
             AJSONObject.L[lFName] := ADataSet.Fields[lField.I].AsLargeInt;
 {$IFDEF TOKYOORBETTER}
           ftGuid:
-            AJSONObject.S[lFName] := GUIDToString(ADataSet.Fields[lField.I].AsGuid);
+            AJSONObject.S[lFName] := TMVCSerializerHelper.ApplyGuidSerialization(gstUseDefault, ADataSet.Fields[lField.I].AsGuid);
 {$ENDIF}
           ftSingle, ftFloat:
             AJSONObject.F[lFName] := ADataSet.Fields[lField.I].AsFloat;
@@ -1507,6 +1513,11 @@ var
   LClazz: TClass;
   lValueTypeInfo: PTypeInfo;
 begin
+  if AJSONObject = nil then
+  begin
+    Exit;
+  end;
+
   case AJSONObject[APropertyName].Typ of
     jdtNone:
       Exit;
@@ -2176,12 +2187,15 @@ begin
         TFieldType.ftDateTime, TFieldType.ftTimeStamp:
           Field.AsDateTime := ISOTimeStampToDateTime(AJSONObject.S[lName]);
 
+        TFieldType.ftTimeStampOffset:
+          Field.AsSQLTimeStampOffset := DateTimeToSQLTimeStampOffset(ISOTimeStampToDateTime(AJSONObject.S[lName]));
+
         TFieldType.ftTime:
           Field.AsDateTime := ISOTimeToTime(AJSONObject.S[lName]);
 
 {$IFDEF TOKYOORBETTER}
         TFieldType.ftGuid:
-          Field.AsGuid := StringToGUID(AJSONObject.S[lName]);
+          Field.AsGuid := TMVCGuidHelper.StringToGUIDEx(AJSONObject.S[lName]);
 {$ENDIF}
         TFieldType.ftGraphic, TFieldType.ftBlob, TFieldType.ftStream:
           begin
@@ -2299,14 +2313,14 @@ begin
           Field.AsDateTime := ISOTimeStampToDateTime(AJSONObject.S[lName]);
 
         TFieldType.ftTimeStampOffset:
-          Field.AsSQLTimeStampOffset :=  StrToSQLTimeStampOffset(AJSONObject.S[lName]);
+          Field.AsSQLTimeStampOffset := DateTimeToSQLTimeStampOffset(ISOTimeStampToDateTime(AJSONObject.S[lName]));
 
         TFieldType.ftTime:
           Field.AsDateTime := ISOTimeToTime(AJSONObject.S[lName]);
 
 {$IFDEF TOKYOORBETTER}
         TFieldType.ftGuid:
-          Field.AsGuid := StringToGUID(AJSONObject.S[lName]);
+          Field.AsGuid := TMVCGuidHelper.StringToGUIDEx(AJSONObject.S[lName]);
 {$ENDIF}
         TFieldType.ftGraphic, TFieldType.ftBlob, TFieldType.ftStream:
           begin
@@ -2680,59 +2694,68 @@ begin
   InternalObjectToJsonObject(AObject, AJSONObject, AType, AIgnoredAttributes, nil, nil, nil);
 end;
 
-procedure TMVCJsonDataObjectsSerializer.InternalObjectToJsonObject(
-  const AObject: TObject;
-  const AJSONObject: TJDOJsonObject;
-  const AType: TMVCSerializationType;
-  const AIgnoredAttributes: TMVCIgnoredList;
-  const ASerializationAction: TMVCSerializationAction;
-  const Links: IMVCLinks;
-  const Serializer: IMVCTypeSerializer);
+procedure TMVCJsonDataObjectsSerializer.InternalObjectToJsonObject(const AObject: TObject; const AJSONObject: TJDOJsonObject; const AType: TMVCSerializationType; const AIgnoredAttributes: TMVCIgnoredList; const ASerializationAction: TMVCSerializationAction; const Links: IMVCLinks; const Serializer: IMVCTypeSerializer);
 var
-  ObjType: TRttiType;
-  Prop: TRttiProperty;
-  Fld: TRttiField;
+  LRttiType: TRttiType;
+  LRttiProperty: TRttiProperty;
+  LRttiField: TRttiField;
+  LFieldName: string;
+  LQualifiedFieldName: string;
 begin
   { TODO -oDanieleT -cGeneral : Find a way to automatically add HATEOS }
   if AObject = nil then
   begin
     Exit;
   end;
-  ObjType := GetRttiContext.GetType(AObject.ClassType);
+  LRttiType := GetRttiContext.GetType(AObject.ClassType);
   case AType of
     stDefault, stProperties:
       begin
-        for Prop in ObjType.GetProperties do
+        for LRttiProperty in LRttiType.GetProperties do
         begin
-          if TMVCSerializerHelper.IsAPropertyToSkip(Prop.Name) then
+          if TMVCSerializerHelper.IsAPropertyToSkip(LRttiProperty.Name) then
           begin
             Continue;
           end;
-
-//          if Prop.Name = 'RefCount' then
-//          begin
-//            Continue;
-//          end;
-
-{$IFDEF AUTOREFCOUNT}
-          if TMVCSerializerHelper.IsAPropertyToSkip(Prop.Name) then
+          {$IFDEF AUTOREFCOUNT}
+          if TMVCSerializerHelper.IsAPropertyToSkip(LRttiProperty.Name) then
             continue;
+          {$ENDIF}
 
-{$ENDIF}
-          if (not TMVCSerializerHelper.HasAttribute<MVCDoNotSerializeAttribute>(Prop)) and
-            (not IsIgnoredAttribute(AIgnoredAttributes, Prop.Name)) then
-            TValueToJSONObjectProperty(AJSONObject, TMVCSerializerHelper.GetKeyName(Prop, ObjType),
-              Prop.GetValue(AObject), AType, AIgnoredAttributes, Prop.GetAttributes);
+          LFieldName := LRttiProperty.Name;
+          LQualifiedFieldName := Format('%s.%s', [AObject.ClassName, LRttiProperty.Name]);
+          if (not TMVCSerializerHelper.HasAttribute<MVCDoNotSerializeAttribute>(LRttiProperty)) and
+             (not IsIgnoredAttribute(AIgnoredAttributes, LFieldName)) and
+             (not IsIgnoredAttribute(AIgnoredAttributes, LQualifiedFieldName))
+          then
+            TValueToJSONObjectProperty(
+              AJSONObject,
+              TMVCSerializerHelper.GetKeyName(LRttiProperty, LRttiType),
+              LRttiProperty.GetValue(AObject),
+              AType,
+              AIgnoredAttributes,
+              LRttiProperty.GetAttributes
+            );
         end;
       end;
     stFields:
       begin
-        for Fld in ObjType.GetFields do
+        for LRttiField in LRttiType.GetFields do
         begin
-          if (not TMVCSerializerHelper.HasAttribute<MVCDoNotSerializeAttribute>(Fld)) and
-            (not IsIgnoredAttribute(AIgnoredAttributes, Fld.Name)) then
-            TValueToJSONObjectProperty(AJSONObject, TMVCSerializerHelper.GetKeyName(Fld, ObjType),
-              Fld.GetValue(AObject), AType, AIgnoredAttributes, Fld.GetAttributes);
+          LFieldName := LRttiField.Name;
+          LQualifiedFieldName := Format('%s.%s', [AObject.ClassName, LRttiField.Name]);
+          if (not TMVCSerializerHelper.HasAttribute<MVCDoNotSerializeAttribute>(LRttiField)) and
+             (not IsIgnoredAttribute(AIgnoredAttributes, LFieldName)) and
+             (not IsIgnoredAttribute(AIgnoredAttributes, LQualifiedFieldName))
+          then
+            TValueToJSONObjectProperty(
+              AJSONObject,
+              TMVCSerializerHelper.GetKeyName(LRttiField, LRttiType),
+              LRttiField.GetValue(AObject),
+              AType,
+              AIgnoredAttributes,
+              LRttiField.GetAttributes
+            );
         end;
       end;
   end;
@@ -3126,7 +3149,7 @@ begin
           begin
             if Obj is TDataSet then
             begin
-              DataSetToJsonArray(TDataSet(Obj), JSONArray.AddArray, TMVCNameCase.ncUseDefault, nil,nil,);
+              DataSetToJsonArray(TDataSet(Obj), JSONArray.AddArray, TMVCNameCase.ncUseDefault, nil,nil);
             end
             else
             begin
@@ -3394,6 +3417,8 @@ function TMVCJsonDataObjectsSerializer.TryNullableToJSON(const AValue: TValue; c
   const AName: string; const ACustomAttributes: TArray<TCustomAttribute>): Boolean;
 var
   lFoundANullable: Boolean;
+  lGuidSerializationType: TMVCGuidSerializationType;
+  lGuidSerializationAttr: MVCGuidSerializationAttribute;
 begin
   Result := False;
   lFoundANullable := False;
@@ -3564,10 +3589,12 @@ begin
     lFoundANullable := True;
     if AValue.AsType<NullableTGUID>().HasValue then
     begin
-      if TMVCSerializerHelper.AttributeExists<MVCSerializeGuidWithoutBracesAttribute>(ACustomAttributes) then
-        AJSONObject.S[AName] := TMVCGuidHelper.GUIDToStringEx(AValue.AsType<NullableTGUID>().Value)
-      else
-        AJSONObject.S[AName] := GUIDToString(AValue.AsType<NullableTGUID>().Value);
+      lGuidSerializationType := TMVCGuidSerializationType.gstUseDefault;
+      if TMVCSerializerHelper.AttributeExists<MVCGuidSerializationAttribute>(ACustomAttributes, lGuidSerializationAttr) then
+      begin
+        lGuidSerializationType := lGuidSerializationAttr.GuidSerializationType;
+      end;
+      AJSONObject.S[AName] := TMVCSerializerHelper.ApplyGuidSerialization(lGuidSerializationType, AValue.AsType<NullableTGUID>().Value);
       Result := True;
     end;
   end;
@@ -3590,7 +3617,7 @@ var
   JSONBase: TJsonBaseObject;
 begin
   if (ASerializedObject = EmptyStr) then
-    raise EMVCException.Create(HTTP_STATUS.BadRequest, 'Invalid body');
+    raise EMVCException.Create(HTTP_STATUS.BadRequest, 'Body is not a valid JSON (the body is empty)');
 
   if not Assigned(AObject) then
     Exit;
@@ -3600,7 +3627,7 @@ begin
     try
       if not(JSONBase is TJDOJsonObject) then
       begin
-        raise EMVCSerializationException.CreateFmt('Invalid JSON. Expected %s got %s',
+        raise EMVCSerializationException.CreateFmt('Body is not a valid JSON Object - Expected %s got %s',
           [TJDOJsonObject.ClassName, JSONBase.ClassName]);
       end;
       JSONObject := TJDOJsonObject(JSONBase);
@@ -4069,7 +4096,7 @@ end;
 
 { TJSONUtils }
 
-class function TJSONUtils.JSONArrayToArrayOfRecord<T>(const JSONArray: TJsonArray): TArray<T>;
+class function TJSONUtils.JSONArrayToArrayOfRecord<T>(const JSONArray: TJDOJsonArray): TArray<T>;
 var
   I: Integer;
   lSer: TMVCJsonDataObjectsSerializer;
@@ -4079,10 +4106,24 @@ begin
     SetLength(Result, JSONArray.Count);
     for I := Low(Result) to High(Result) do
     begin
-      Result[I] := JSONObjectToRecord<T>(JSONArray.Items[I].ObjectValue, lSer);
+      Result[I] := InternalJSONObjectToRecord<T>(JSONArray.Items[I].ObjectValue, lSer);
     end;
   finally
     lSer.Free;
+  end;
+end;
+
+class function TJSONUtils.JSONArrayToArrayOfRecord<T>(const JSONRPCResponse: IInterface): TArray<T>;
+var
+  lIntf: IJSONRPCResponse;
+begin
+  if Supports(JSONRPCResponse, IJSONRPCResponse, lIntf) then
+  begin
+    Result := TJSONUtils.JSONArrayToArrayOfRecord<T>(lIntf.ResultAsJSONArray);
+  end
+  else
+  begin
+    RaiseSerializationError('Parameter doesn''t support IJSONRPCResponse');
   end;
 end;
 
@@ -4127,20 +4168,36 @@ begin
   end;
 end;
 
-class function TJSONUtils.JSONObjectToRecord<T>(const JSONObject: TJsonObject): T;
+class function TJSONUtils.JSONObjectToRecord<T>(const JSONRPCResponse: IInterface): T;
+var
+  lIntf: IJSONRPCResponse;
+begin
+  if Supports(JSONRPCResponse, IJSONRPCResponse, lIntf) then
+  begin
+    Result := JSONObjectToRecord<T>(TJDOJsonObject(lIntf.ResultAsJSONObject()));
+  end
+  else
+  begin
+    RaiseSerializationError('Parameter doesn''t support IJSONRPCResponse');
+    {$IF Defined(ATHENSORBETTER)}
+    Result := Default(T);
+    {$ENDIF}
+  end;
+end;
+
+class function TJSONUtils.JSONObjectToRecord<T>(const JSONObject: TJDOJSONObject): T;
 var
   lSer: TMVCJsonDataObjectsSerializer;
 begin
   lSer := TMVCJsonDataObjectsSerializer.Create(nil);
   try
-    Result := JSONObjectToRecord<T>(JSONObject, lSer);
+    Result := InternalJSONObjectToRecord<T>(JSONObject, lSer);
   finally
     lSer.Free;
   end;
 end;
 
-class function TJSONUtils.JSONObjectToRecord<T>(const JSONObject: TJsonObject;
-  const Serializer: TMVCJsonDataObjectsSerializer): T;
+class function TJSONUtils.InternalJSONObjectToRecord<T>(const JSONObject: TJsonObject; const Serializer: TMVCJsonDataObjectsSerializer): T;
 begin
   Result := Serializer.JSONObjectToRecord<T>(JSONObject);
 end;

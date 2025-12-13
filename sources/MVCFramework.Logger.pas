@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -40,7 +40,7 @@ const
   LOGGERPRO_TAG = 'dmvcframework';
 
 type
-  TLogLevel = (levDebug = 0, levNormal = 1, levWarning = 2, levError = 3, levException = 4);
+  TLogLevel = (levDebug = 0, levNormal = 1, levWarning = 2, levError = 3, levException = 4, levFatal = 5);
 
 {$IF Defined(SYDNEYORBETTER)}
 const
@@ -67,7 +67,9 @@ type
   end;
 {$ENDIF}
 
-function LogLevelAsString(ALogLevel: TLogLevel): string;
+function LogLevelToStr(ALogLevel: TLogLevel): string;
+function StrToLogLevel(ALogLevelString: String): TLogLevel;
+
 procedure Log(AMessage: string); overload;
 procedure Log(AObject: TObject); overload;
 
@@ -95,7 +97,10 @@ procedure LogExitMethod(const AMethodName: string);
 function Log: ILogWriter; overload;
 
 procedure SetDefaultLogger(const aLogWriter: ILogWriter);
-procedure InitializeDefaultLogger;
+//procedure InitializeDefaultLogger;
+function CreateLoggerWithDefaultConfiguration: ILogWriter;
+function CreateNullLogger: ILogWriter;
+
 { @abstract(Use only inside DLL because dll unloading is not a safe place to shutdown threads, so call this before unload DLL)
   Use this also in ISAPI dll. Check the @code(loggerproisapisample.dll) sample
 }
@@ -106,6 +111,7 @@ procedure InitThreadVars;
 var
   LogLevelLimit: TLogLevel = TLogLevel.levNormal;
   UseConsoleLogger: Boolean = True;
+  UseLoggerVerbosityLevel: TLogLevel = TLogLevel.levDebug;
 
 implementation
 
@@ -113,7 +119,7 @@ uses
   {$IF Defined(MSWINDOWS)}
   LoggerPro.ConsoleAppender,
   {$ELSE}
-  {$IF Not Defined(MOBILE)}
+  {$IF Defined(CONSOLE) and Not Defined(MOBILE)}
   LoggerPro.SimpleConsoleAppender, //only for linux
   {$ENDIF}
   {$ENDIF}
@@ -132,7 +138,7 @@ threadvar
 var
   gLock: TObject;
   gDefaultLogger: ILogWriter;
-  gLevelsMap: array [TLogLevel.levDebug .. TLogLevel.levException] of LoggerPro.TLogType = (
+  gLevelsMap: array [TLogLevel.levDebug .. TLogLevel.levFatal] of LoggerPro.TLogType = (
     (
       TLogType.Debug
     ),
@@ -147,6 +153,9 @@ var
     ),
     (
       TLogType.Error
+    ),
+    (
+      TLogType.Fatal
     )
   );
 
@@ -160,9 +169,33 @@ begin
     Result := gDefaultLogger;
 end;
 
-function LogLevelAsString(ALogLevel: TLogLevel): string;
+function StrToLogLevel(ALogLevelString: String): TLogLevel;
+begin
+  ALogLevelString := ALogLevelString.ToLower;
+  if ALogLevelString.StartsWith('lev') then
+  begin
+    ALogLevelString := ALogLevelString.Remove(0, 3);
+  end;
+  if ALogLevelString.IsEmpty or (ALogLevelString = 'debug') then
+    Exit(levDebug);
+  if (ALogLevelString = 'info') or (ALogLevelString = 'normal') then
+    Exit(levNormal);
+  if ALogLevelString = 'warning' then
+    Exit(levWarning);
+  if ALogLevelString = 'error' then
+    Exit(levError);
+  if ALogLevelString = 'exception' then
+    Exit(levException);
+  if ALogLevelString = 'fatal' then
+    Exit(levFatal);
+  raise EMVCConfigException.Create('Invalid log level: ' + ALogLevelString);
+end;
+
+function LogLevelToStr(ALogLevel: TLogLevel): string;
 begin
     case ALogLevel of
+      levDebug :
+        Result := 'DEBUG';
       levNormal:
         Result := ''; // normal is '' because is more readable
       levWarning:
@@ -171,6 +204,8 @@ begin
         Result := 'ERROR';
       levException:
         Result := 'EXCEPTION';
+      levFatal:
+        Result := 'FATAL';
     else
       Result := 'UNKNOWN';
     end;
@@ -236,6 +271,8 @@ begin
         Log.Warn(AMessage, LOGGERPRO_TAG);
       TLogType.Error:
         Log.Error(AMessage, LOGGERPRO_TAG);
+      TLogType.Fatal:
+        Log.Fatal(AMessage, LOGGERPRO_TAG);
     else
       raise Exception.Create('Invalid LOG LEVEL! Original message was: ' + AMessage);
     end;
@@ -277,6 +314,16 @@ begin
     LogW(ObjectToJSON(AObject));
 end;
 
+procedure InitializeDefaultLogger;
+begin
+  { This procedure must be called in a synchronized context
+    (Normally only SetDefaultLogger should be the caller) }
+  if not Assigned(gDefaultLogger) then
+  begin
+    gDefaultLogger := CreateLoggerWithDefaultconfiguration;
+  end;
+end;
+
 procedure SetDefaultLogger(const aLogWriter: ILogWriter);
 begin
   if gDefaultLogger = nil then
@@ -302,42 +349,43 @@ begin
 end;
 
 
+function CreateNullLogger: ILogWriter;
+begin
+  Result := BuildLogWriter([], nil, gLevelsMap[UseLoggerVerbosityLevel]);
+end;
 
-procedure InitializeDefaultLogger;
+function CreateLoggerWithDefaultConfiguration: ILogWriter;
 var
   lLogsFolder: String;
   lFileAppender, lConsoleAppender: ILogAppender;
   lAppenders: TArray<ILogAppender>;
 begin
-    { This procedure must be called in a synchronized context
-      (Normally only SetDefaultLogger should be the caller) }
-    if not Assigned(gDefaultLogger) then
-    begin
 {$IF NOT DEFINED(MOBILE)}
-      lLogsFolder := AppPath + 'logs';
+  lLogsFolder := AppPath + 'logs';
 {$ELSE}
-      lLogsFolder := TPath.Combine(TPath.GetDocumentsPath, 'logs');
+  lLogsFolder := TPath.Combine(TPath.GetDocumentsPath, 'logs');
 {$ENDIF}
-      lFileAppender := TLoggerProFileAppender.Create(5, 10000, lLogsFolder);
-      if IsConsole and UseConsoleLogger then
-      begin
-        {$IF Defined(MSWINDOWS)}
-        lConsoleAppender := TLoggerProConsoleAppender.Create(TLogItemRendererNoTag.Create);
-        {$ELSE}
-        {$IF Not Defined(MOBILE)}
-        lConsoleAppender := TLoggerProSimpleConsoleAppender.Create(TLogItemRendererNoTag.Create);
-        {$ENDIF}
-        {$ENDIF}
-        lAppenders := [lFileAppender, lConsoleAppender];
-      end
-      else
-      begin
-        lAppenders := [lFileAppender];
-      end;
-      gDefaultLogger := BuildLogWriter(lAppenders);
-    end;
+  lFileAppender := TLoggerProFileAppender.Create(5, 10000, lLogsFolder);
+  if IsConsole and UseConsoleLogger then
+  begin
+    {$IF Defined(MSWINDOWS)}
+    lConsoleAppender := TLoggerProConsoleAppender.Create(TLogItemRendererNoTag.Create);
+    {$ELSE}
+    {$IF Defined(CONSOLE) and Not Defined(MOBILE)}
+    lConsoleAppender := TLoggerProSimpleConsoleAppender.Create(TLogItemRendererNoTag.Create);
+    {$ENDIF}
+    {$ENDIF}
+  end;
+  if Assigned(lConsoleAppender) then
+  begin
+    lAppenders := [lFileAppender, lConsoleAppender]
+  end
+  else
+  begin
+    lAppenders := [lFileAppender];
+  end;
+  Result := BuildLogWriter(lAppenders, nil, gLevelsMap[UseLoggerVerbosityLevel]);
 end;
-
 
 procedure ReleaseGlobalLogger;
 begin
@@ -431,6 +479,8 @@ begin
   lStopWatch := TStopWatch.StartNew;
   Result := Func(); //do not put try/except here. If exception raises the timing is a nonsense
   lStopWatch.Stop;
+  if Profiler.ProfileLogger = nil then
+    Exit;
   if lStopWatch.ElapsedMilliseconds >= WarningThreshold then
   begin
     ProfileLogger.Log(
@@ -451,6 +501,8 @@ begin
   lStopWatch := TStopWatch.StartNew;
   Proc(); //do not put try/except here. If exception raises the timing is a nonsense
   lStopWatch.Stop;
+  if Profiler.ProfileLogger = nil then
+    Exit;
   if lStopWatch.ElapsedMilliseconds >= WarningThreshold then
   begin
     ProfileLogger.Log(

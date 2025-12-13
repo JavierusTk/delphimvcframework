@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -86,7 +86,7 @@ type
   protected
     function NeedsToBeExtended(const JWTValue: TJWT): Boolean;
     procedure ExtendExpirationTime(const JWTValue: TJWT);
-    procedure InternalRender(AJSONOb: TJDOJsonObject; AContentType: string; AContentEncoding: string;
+    procedure InternalRender(AJSONOb: TJDOJsonObject; AMediaType: string; AContentCharset: string;
       AContext: TWebContext; AInstanceOwner: Boolean = True); virtual;
     procedure OnBeforeRouting(AContext: TWebContext; var AHandled: Boolean); virtual;
     procedure OnBeforeControllerAction(AContext: TWebContext; const AControllerQualifiedClassName: string;
@@ -155,6 +155,30 @@ type
       BlackListRequestURLSegment: string = '/logout');
   end;
 
+  function UseJWTMiddleware(
+      aAuthenticationHandler: IMVCAuthenticationHandler;
+      aConfigClaims: TJWTClaimsSetup;
+      aSecret: string = 'D3lph1MVCFram3w0rk';
+      aLoginURLSegment: string = '/loginff';
+      aClaimsToCheck: TJWTCheckableClaims = [];
+      aLeewaySeconds: Cardinal = 300;
+      aHMACAlgorithm: String = HMAC_HS512): IMVCMiddleware;
+
+  function UseJWTMiddlewareWithHTTPOnlyCookie(
+      aAuthenticationHandler: IMVCAuthenticationHandler;
+      aConfigClaims: TJWTClaimsSetup;
+      aSecret: string = 'D3lph1MVCFram3w0rk';
+      aLoginURLSegment: string = '/login';
+      aLogoutURLSegment: string = '/logoff';
+      aClaimsToCheck: TJWTCheckableClaims = [];
+      aLeewaySeconds: Cardinal = 300;
+      aHMACAlgorithm: String = HMAC_HS512): IMVCMiddleware;
+
+  function UseJWTBlackListMiddleware(
+      OnAcceptToken: TMVCOnAcceptTokenProc;
+      OnNewJWTToBlackList: TMVCOnNewJWTToBlackList;
+      BlackListRequestURLSegment: string = '/logout'
+    ): IMVCMiddleware;
 
 implementation
 
@@ -163,6 +187,44 @@ uses
   System.DateUtils,
   System.Math,
   MVCFramework.Logger;
+
+function UseJWTMiddleware(
+      aAuthenticationHandler: IMVCAuthenticationHandler;
+      aConfigClaims: TJWTClaimsSetup;
+      aSecret: string = 'D3lph1MVCFram3w0rk';
+      aLoginURLSegment: string = '/loginff';
+      aClaimsToCheck: TJWTCheckableClaims = [];
+      aLeewaySeconds: Cardinal = 300;
+      aHMACAlgorithm: String = HMAC_HS512): IMVCMiddleware;
+begin
+  Result := TMVCJWTAuthenticationMiddleware.Create(
+    aAuthenticationHandler, aConfigClaims, aSecret, aLoginURLSegment, aClaimsToCheck, aLeewaySeconds, aHMACAlgorithm);
+end;
+
+
+function UseJWTMiddlewareWithHTTPOnlyCookie(
+    aAuthenticationHandler: IMVCAuthenticationHandler;
+    aConfigClaims: TJWTClaimsSetup;
+    aSecret: string = 'D3lph1MVCFram3w0rk';
+    aLoginURLSegment: string = '/login';
+    aLogoutURLSegment: string = '/logoff';
+    aClaimsToCheck: TJWTCheckableClaims = [];
+    aLeewaySeconds: Cardinal = 300;
+    aHMACAlgorithm: String = HMAC_HS512): IMVCMiddleware;
+begin
+  Result := TMVCJWTAuthenticationMiddleware.Create(
+    aAuthenticationHandler, aConfigClaims, True, aLogoutURLSegment, aSecret, aLoginURLSegment, aClaimsToCheck, aLeewaySeconds, aHMACAlgorithm);
+end;
+
+function UseJWTBlackListMiddleware(
+    OnAcceptToken: TMVCOnAcceptTokenProc;
+    OnNewJWTToBlackList: TMVCOnNewJWTToBlackList;
+    BlackListRequestURLSegment: string = '/logout'
+  ): IMVCMiddleware;
+begin
+  Result := TMVCJWTBlackListMiddleware.Create(OnAcceptToken, OnNewJWTToBlackList, BlackListRequestURLSegment);
+end;
+
 
 { TMVCJWTAuthenticationMiddleware }
 
@@ -210,35 +272,35 @@ begin
 end;
 
 procedure TMVCJWTAuthenticationMiddleware.InternalRender(AJSONOb: TJDOJsonObject;
-  AContentType, AContentEncoding: string; AContext: TWebContext; AInstanceOwner: Boolean);
+  AMediaType, AContentCharset: string; AContext: TWebContext; AInstanceOwner: Boolean);
 var
-  Encoding: TEncoding;
-  ContentType, JValue: string;
-  Cookie: TCookie;
+  lEncoding: TEncoding;
+  lContentType, lJValue: string;
+  lCookie: TCookie;
 begin
-  JValue := AJSONOb.ToJSON;
+  lJValue := AJSONOb.ToJSON;
 
   if FUseHttpOnly then
   begin
-    Cookie := AContext.Response.Cookies.Add;
-    Cookie.Expires := FTokenHttpOnlyExpires;
-    Cookie.Path := '/';
-    Cookie.Name := 'token';
-    Cookie.Value := AJSONOb.S['token'];
-    Cookie.HttpOnly := True;
+    lCookie := AContext.Response.Cookies.Add;
+    lCookie.Expires := FTokenHttpOnlyExpires;
+    lCookie.Path := '/';
+    lCookie.Name := 'token';
+    lCookie.Value := AJSONOb.S['token'];
+    lCookie.HttpOnly := True;
     // Cookie.Secure := True;
     // Cookie.SameSite := 'none';
   end;
 
-  AContext.Response.RawWebResponse.ContentType := AContentType + '; charset=' + AContentEncoding;
-  ContentType := AContentType + '; charset=' + AContentEncoding;
+  lContentType := BuildContentType(AMediaType, AContentCharset);
+  AContext.Response.RawWebResponse.ContentType := lContentType;
 
-  Encoding := TEncoding.GetEncoding(AContentEncoding);
+  lEncoding := TEncoding.GetEncoding(AContentCharset);
   try
-    AContext.Response.SetContentStream(TBytesStream.Create(TEncoding.Convert(TEncoding.Default, Encoding,
-      TEncoding.Default.GetBytes(JValue))), ContentType);
+    AContext.Response.SetContentStream(TBytesStream.Create(TEncoding.Convert(TEncoding.Default, lEncoding,
+      TEncoding.Default.GetBytes(lJValue))), lContentType);
   finally
-    Encoding.Free;
+    lEncoding.Free;
   end;
 
   if AInstanceOwner then
@@ -247,7 +309,7 @@ end;
 
 procedure TMVCJWTAuthenticationMiddleware.SendLogoffRender(AContext: TWebContext);
 const
-  returnMessage = '{ "message": "Successful logout" }';
+  ReturnMessage = '{ "message": "Successful logout" }';
   ContentType = 'application/json; charset=UTF-8';
   AContentEncoding = 'UTF-8';
 var
@@ -462,6 +524,11 @@ begin
           begin
             LUsername := lJObj.S[FUserNameHeaderName];
             LPassword := lJObj.S[FPasswordHeaderName];
+            if LUsername.IsEmpty then
+            begin
+              LUsername := lJObj.S['username'];
+              LPassword := lJObj.S['password'];
+            end;
           end;
         finally
           lJObj.Free;

@@ -2,7 +2,7 @@
 //
 // LoggerPro
 //
-// Copyright (c) 2010-2024 Daniele Teti
+// Copyright (c) 2010-2025 Daniele Teti
 //
 // https://github.com/danieleteti/loggerpro
 //
@@ -153,27 +153,24 @@ type
     ['{A717A040-4493-458F-91B2-6F6E2AFB496F}']
     procedure Debug(const aMessage: string; const aTag: string); overload;
     procedure Debug(const aMessage: string; const aParams: array of TVarRec; const aTag: string); overload;
-    procedure DebugFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string); deprecated;
 
     procedure Info(const aMessage: string; const aTag: string); overload;
     procedure Info(const aMessage: string; const aParams: array of TVarRec; const aTag: string); overload;
-    procedure InfoFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string); deprecated;
 
     procedure Warn(const aMessage: string; const aTag: string); overload;
     procedure Warn(const aMessage: string; const aParams: array of TVarRec; const aTag: string); overload;
-    procedure WarnFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string); deprecated;
 
     procedure Error(const aMessage: string; const aTag: string); overload;
     procedure Error(const aMessage: string; const aParams: array of TVarRec; const aTag: string); overload;
-    procedure ErrorFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string); deprecated;
 
     procedure Fatal(const aMessage: string; const aTag: string); overload;
     procedure Fatal(const aMessage: string; const aParams: array of TVarRec; const aTag: string); overload;
-    procedure FatalFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string); deprecated;
 
     procedure Log(const aType: TLogType; const aMessage: string; const aTag: string); overload;
     procedure Log(const aType: TLogType; const aMessage: string; const aParams: array of const; const aTag: string); overload;
-    procedure LogFmt(const aType: TLogType; const aMessage: string; const aParams: array of const; const aTag: string); deprecated;
+
+    procedure Disable;
+    procedure Enable;
   end;
 
   TLogAppenderList = TList<ILogAppender>;
@@ -211,7 +208,7 @@ type
         function GetLogLevel: TLogType;
       end;
 
-      TAppenderAdaptersList = class(TObjectList<TAppenderAdapter>)
+      TAppenderAdapterList = class(TObjectList<TAppenderAdapter>)
       public
         constructor Create;
       end;
@@ -221,7 +218,7 @@ type
     FAppenders: TLogAppenderList;
     FEventsHandlers: TLoggerProEventsHandler;
     FAppendersDecorators: TObjectList<TAppenderAdapter>;
-    function BuildAppendersDecorator: TAppenderAdaptersList;
+    function BuildAppenderAdapters: TAppenderAdapterList;
     procedure DoOnAppenderError(const FailAppenderClassName: string; const aFailedLogItem: TLogItem; const aReason: TLogErrorReason;
       var aAction: TLogErrorAction);
     procedure SetEventsHandlers(const Value: TLoggerProEventsHandler);
@@ -250,6 +247,7 @@ type
     FLogLevel: TLogType;
     function GetAppendersClassNames: TArray<string>;
   protected
+    FEnabled: Boolean;
     procedure Initialize(const aEventsHandler: TLoggerProEventsHandler);
   public
     constructor Create(const aLogLevel: TLogType = TLogType.Debug); overload;
@@ -268,27 +266,23 @@ type
   public
     procedure Debug(const aMessage: string; const aTag: string); overload;
     procedure Debug(const aMessage: string; const aParams: array of TVarRec; const aTag: string); overload;
-    procedure DebugFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string);
 
     procedure Info(const aMessage: string; const aTag: string); overload;
     procedure Info(const aMessage: string; const aParams: array of TVarRec; const aTag: string); overload;
-    procedure InfoFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string);
 
     procedure Warn(const aMessage: string; const aTag: string); overload;
     procedure Warn(const aMessage: string; const aParams: array of TVarRec; const aTag: string); overload;
-    procedure WarnFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string);
 
     procedure Error(const aMessage: string; const aTag: string); overload;
     procedure Error(const aMessage: string; const aParams: array of TVarRec; const aTag: string); overload;
-    procedure ErrorFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string);
 
     procedure Fatal(const aMessage: string; const aTag: string); overload;
     procedure Fatal(const aMessage: string; const aParams: array of TVarRec; const aTag: string); overload;
-    procedure FatalFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string);
-
 
     procedure Log(const aType: TLogType; const aMessage: string; const aParams: array of const; const aTag: string); overload;
-    procedure LogFmt(const aType: TLogType; const aMessage: string; const aParams: array of const; const aTag: string);
+
+    procedure Disable;
+    procedure Enable;
   end;
 
   TOnAppenderLogRow = reference to procedure(const LogItem: TLogItem; out LogRow: string);
@@ -296,16 +290,16 @@ type
   TLoggerProAppenderBase = class abstract(TInterfacedObject, ILogAppender)
   private
     FLogLevel: TLogType;
-    FEnabled: Boolean;
     FLastErrorTimeStamp: TDateTime;
-    FOnLogRow: TOnAppenderLogRow;
-    FLogItemRenderer: ILogItemRenderer;
     FFormatSettings: TFormatSettings;
   protected
+    FOnLogRow: TOnAppenderLogRow;
+    FLogItemRenderer: ILogItemRenderer;
     property FormatSettings: TFormatSettings read FFormatSettings;
     property LogItemRenderer: ILogItemRenderer read FLogItemRenderer;
   public
-    constructor Create(ALogItemRenderer: ILogItemRenderer = nil); virtual;
+    constructor Create(ALogItemRenderer: ILogItemRenderer); overload; virtual;
+    constructor Create; overload; virtual;
     procedure Setup; virtual;
     function FormatLog(const ALogItem: TLogItem): string; virtual;
     procedure WriteLog(const aLogItem: TLogItem); virtual; abstract;
@@ -534,6 +528,7 @@ end;
 constructor TCustomLogWriter.Create(const aLogAppenders: TLogAppenderList; const aLogLevel: TLogType = TLogType.Debug);
 begin
   inherited Create;
+  FEnabled := True;
   FFreeAllowed := False;
   FLogAppenders := aLogAppenders;
   FLogLevel := aLogLevel;
@@ -612,7 +607,7 @@ procedure TCustomLogWriter.Log(const aType: TLogType; const aMessage, aTag: stri
 var
   lLogItem: TLogItem;
 begin
-  if aType >= FLogLevel then
+  if FEnabled and (aType >= FLogLevel) then
   begin
     lLogItem := TLogItem.Create(aType, aMessage, aTag);
     try
@@ -640,9 +635,9 @@ begin
   Log(TLogType.Debug, aMessage, aParams, aTag);
 end;
 
-procedure TLogWriter.DebugFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string);
+procedure TLogWriter.Disable;
 begin
-  Debug(aMessage, aParams, aTag);
+  fEnabled := False;
 end;
 
 procedure TLogWriter.Error(const aMessage, aTag: string);
@@ -650,14 +645,14 @@ begin
   Log(TLogType.Error, aMessage, aTag);
 end;
 
+procedure TLogWriter.Enable;
+begin
+  fEnabled := True;
+end;
+
 procedure TLogWriter.Error(const aMessage: string; const aParams: array of TVarRec; const aTag: string);
 begin
   Log(TLogType.Error, aMessage, aParams, aTag);
-end;
-
-procedure TLogWriter.ErrorFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string);
-begin
-  Error(aMessage, aParams, aTag);
 end;
 
 procedure TLogWriter.Fatal(const aMessage, aTag: string);
@@ -671,12 +666,6 @@ begin
   Log(TLogType.Fatal, aMessage, aParams, aTag);
 end;
 
-procedure TLogWriter.FatalFmt(const aMessage: string;
-  const aParams: array of TVarRec; const aTag: string);
-begin
-  Fatal(aMessage, aParams, aTag);
-end;
-
 procedure TLogWriter.Info(const aMessage, aTag: string);
 begin
   Log(TLogType.Info, aMessage, aTag);
@@ -687,21 +676,10 @@ begin
   Log(TLogType.Info, aMessage, aParams, aTag);
 end;
 
-procedure TLogWriter.InfoFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string);
-begin
-  Info(aMessage, aParams, aTag);
-end;
-
 procedure TLogWriter.Log(const aType: TLogType; const aMessage: string; const aParams: array of const; const aTag: string);
 begin
   Log(aType, Format(aMessage, aParams), aTag);
 end;
-
-procedure TLogWriter.LogFmt(const aType: TLogType; const aMessage: string; const aParams: array of const; const aTag: string);
-begin
-  Log(aType, aMessage, aParams, aTag);
-end;
-
 
 procedure TLogWriter.Warn(const aMessage, aTag: string);
 begin
@@ -711,11 +689,6 @@ end;
 procedure TLogWriter.Warn(const aMessage: string; const aParams: array of TVarRec; const aTag: string);
 begin
   Log(TLogType.Warning, aMessage, aParams, aTag);
-end;
-
-procedure TLogWriter.WarnFmt(const aMessage: string; const aParams: array of TVarRec; const aTag: string);
-begin
-  Warn(aMessage, aParams, aTag);
 end;
 
 { TLogger.TLogItem }
@@ -769,9 +742,9 @@ var
   lAction: TLogErrorAction;
   lWaitResult: TWaitResult;
 begin
-  FAppendersDecorators := BuildAppendersDecorator;
+  FAppendersDecorators := BuildAppenderAdapters;
   try
-    while true do
+    while True do
     begin
       lWaitResult := FQueue.Dequeue(lQSize, lLogItem);
       case lWaitResult of
@@ -830,11 +803,11 @@ begin
   FEventsHandlers := Value;
 end;
 
-function TLoggerThread.BuildAppendersDecorator: TAppenderAdaptersList;
+function TLoggerThread.BuildAppenderAdapters: TAppenderAdapterList;
 var
   I: Integer;
 begin
-  Result := TAppenderAdaptersList.Create;
+  Result := TAppenderAdapterList.Create;
   try
     for I := 0 to FAppenders.Count - 1 do
     begin
@@ -919,7 +892,6 @@ end;
 constructor TLoggerProAppenderBase.Create(aLogItemRenderer: ILogItemRenderer);
 begin
   inherited Create;
-  Self.FEnabled := true;
   Self.FLogLevel := TLogType.Debug;
   if Assigned(aLogItemRenderer) then
   begin
@@ -930,6 +902,11 @@ begin
     Self.FLogItemRenderer := GetDefaultLogItemRenderer;
   end;
   Self.FOnLogRow := nil;
+end;
+
+constructor TLoggerProAppenderBase.Create;
+begin
+  Create(nil);
 end;
 
 function TLoggerProAppenderBase.FormatLog(const ALogItem: TLogItem): string;
@@ -1102,7 +1079,7 @@ end;
 
 { TLoggerThread.TAppenderAdaptersList }
 
-constructor TLoggerThread.TAppenderAdaptersList.Create;
+constructor TLoggerThread.TAppenderAdapterList.Create;
 begin
   inherited Create(true);
 end;

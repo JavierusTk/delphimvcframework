@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -100,10 +100,13 @@ begin
   DMVC.SetViewEngine(TMVCMustacheViewEngine);
 
   // Register a custom serializer for TUserRoles (is compatible only with the default serializer)
-  // DMVC
-  // .Serializers
-  // .Items[TMVCMediaType.APPLICATION_JSON]
-  // .RegisterTypeSerializer(TypeInfo(TUserRoles), TUserRolesSerializer.Create);
+   DMVC
+     .Serializer(TMVCMediaType.APPLICATION_JSON)
+     .RegisterTypeSerializer(TypeInfo(TUserRoles), TUserRolesSerializer.Create);
+
+   DMVC
+     .Serializer(TMVCMediaType.APPLICATION_JSON)
+     .RegisterTypeSerializer(TypeInfo(TSysUser), TSysUserSerializer.Create);
 
   // You can check how this custom type serializer works
   // calling http://localhost:8080/customserializationtype

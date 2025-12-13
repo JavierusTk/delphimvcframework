@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -26,10 +26,14 @@ unit MVCFramework.DotEnv.Parser;
 
 interface
 
-uses System.Generics.Collections, System.SysUtils;
+uses
+  System.Generics.Collections,
+  System.SysUtils,
+  System.Variants,
+  ExprEvaluator;
 
 type
-{$SCOPEDENUMS ON}
+  {$SCOPEDENUMS ON}
   TMVCDotEnvParserState = (FileThenEnv, EnvThenFile, OnlyFile, OnlyEnv);
 
   TMVCDotEnvDictionary = class(TDictionary<String, String>)
@@ -41,7 +45,7 @@ type
 
   end;
 
-  TLineBreakStyle = (MSWindows, Linux { MacOS too } );
+  TLineBreakStyle = (MSWindows, Linux { MacOS too });
   TStringQuotedStyle = (SingleQuoted, DoublyQuoted, UnQuoted);
 
   {
@@ -63,22 +67,28 @@ type
     fCurrChar: Char;
     fIndex: Integer;
     fCurLine: Integer;
-    fLineBreakStyle: TLineBreakStyle;
-    fLineBreaksStyle: TLineBreakStyle;
     fSavedIndex: Integer;
     fCodeLength: Integer;
+    fCurrentLineBreak: string;
+    fCurrentLineBreakLength: Integer;
+    fExprEvaluator: TExprEvaluator;
+    fEnvDict: TMVCDotEnvDictionary;
+    function IsPartOfLineBreak(const aChar: Char): Boolean;
     function MatchIdentifier(out Value: String): Boolean;
     function MatchKey(out Token: String): Boolean;
     function MatchValue(out Token: String): Boolean;
     function MatchSymbol(const Symbol: Char): Boolean;
     procedure Check(Value: Boolean; Error: String = '');
     function MatchString(out Value: String): Boolean;
-    procedure EatLineBreaks;
+    function EatLineBreaks: Boolean;
+    function EatSpaces: Boolean;
     procedure EatUpToLineBreak;
     function NextChar: Char;
-    procedure EatSpaces;
+    function PeekNextChar: Char;
     function DetectLineBreakStyle(Code: String): TLineBreakStyle;
     procedure MatchInLineComment;
+    function EvaluateExpression(const Expr: string): string;
+    function MatchExpression(out Value: string): Boolean;
   public
     constructor Create; virtual;
     destructor Destroy; override;
@@ -93,26 +103,52 @@ uses
   System.Classes;
 
 const
-  LINE_BREAKS: array [TLineBreakStyle.MSWindows .. TLineBreakStyle.Linux] of AnsiString = (#13#10, #10);
+  LINE_BREAKS: array[TLineBreakStyle.MSWindows..TLineBreakStyle.Linux] of AnsiString = (#13#10, #10);
 
-  { TMVCDotEnvParser }
+{ TMVCDotEnvParser }
 
 procedure TMVCDotEnvParser.Check(Value: Boolean; Error: String);
+var
+  I: Integer;
+  lNear: String;
+  lSavedCurrChar: Char;
+  lSavedCurrLine: Integer;
 begin
   if not Value then
   begin
-    raise EMVCDotEnvParser.CreateFmt('Error: %s - got "%s" at line: %d',
-      [Error, fCurrChar, fCurLine + 1]);
+    lSavedCurrChar := fCurrChar;
+    lSavedCurrLine := fCurLine;
+    lNear := fCurrChar;
+    for I := 1 to 20 do
+    begin
+      NextChar;
+      if IsPartOfLineBreak(fCurrChar) then
+      begin
+        Break;
+      end;
+      if fCurrChar <> #0 then
+      begin
+        lNear := lNear + fCurrChar;
+      end;
+    end;
+
+    if lSavedCurrChar <> #0 then
+      raise EMVCDotEnvParser
+          .CreateFmt('Error: %s - got "%s" at line: %d near "%s"', [Error, lSavedCurrChar, lSavedCurrLine, lNear])
+    else
+      raise EMVCDotEnvParser.CreateFmt('Error: %s at line: %d near "%s"', [Error, lSavedCurrLine, lNear])
   end;
 end;
 
 constructor TMVCDotEnvParser.Create;
 begin
   inherited;
+  fExprEvaluator := TExprEvaluator.Create;
 end;
 
 destructor TMVCDotEnvParser.Destroy;
 begin
+  fExprEvaluator.Free;
   inherited;
 end;
 
@@ -125,12 +161,14 @@ begin
   Result := TLineBreakStyle.MSWindows; // just one line or empty file
 end;
 
-procedure TMVCDotEnvParser.EatLineBreaks;
+function TMVCDotEnvParser.EatLineBreaks: Boolean;
 begin
+  Result := False;
   while CharInSet(fCode.Chars[fIndex], [#13, #10]) do
   begin
+    Result := True;
     fCurrChar := NextChar;
-    if (fCurrChar = String(LINE_BREAKS[fLineBreakStyle])[1]) then
+    if fCurrChar = Char(fCurrentLineBreak[1]) then
     begin
       Inc(fCurLine);
       fSavedIndex := fIndex;
@@ -138,10 +176,12 @@ begin
   end;
 end;
 
-procedure TMVCDotEnvParser.EatSpaces;
+function TMVCDotEnvParser.EatSpaces: Boolean;
 begin
+  Result := False;
   while CharInSet(fCode.Chars[fIndex], [#32, #9]) do
   begin
+    Result := True;
     NextChar;
   end;
 end;
@@ -154,6 +194,15 @@ begin
   end;
 end;
 
+function TMVCDotEnvParser.IsPartOfLineBreak(const aChar: Char): Boolean;
+begin
+  Result := (fCurrentLineBreakLength = 1) and (fCurrChar = fCurrentLineBreak[1]);
+  Result :=
+      Result
+          or ((fCurrentLineBreakLength = 2)
+              and ((fCurrChar = fCurrentLineBreak[1]) or (fCurrChar = fCurrentLineBreak[2])));
+end;
+
 procedure TMVCDotEnvParser.MatchInLineComment;
 begin
   EatSpaces;
@@ -163,17 +212,20 @@ begin
   end;
 end;
 
-
 procedure TMVCDotEnvParser.Parse(const EnvDictionay: TMVCDotEnvDictionary; const DotEnvCode: String);
 var
   lKey: string;
   lValue: string;
+  lLineBreakStyle: TLineBreakStyle;
 begin
   fCode := DotEnvCode;
   fCodeLength := Length(fCode);
-  fLineBreaksStyle := DetectLineBreakStyle(fCode);
+  fEnvDict := EnvDictionay;
+  lLineBreakStyle := DetectLineBreakStyle(fCode);
+  fCurrentLineBreak := String(LINE_BREAKS[lLineBreakStyle]);
+  fCurrentLineBreakLength := Length(fCurrentLineBreak);
   fIndex := -1;
-  fCurLine := 0;
+  fCurLine := 1;
   fSavedIndex := 0;
   if fCodeLength = 0 then { empty .env file }
   begin
@@ -182,7 +234,11 @@ begin
   NextChar;
   while fIndex < Length(DotEnvCode) do
   begin
-    EatLineBreaks;
+    EatSpaces;
+    if EatLineBreaks then
+    begin
+      Continue;
+    end;
     EatSpaces;
     if MatchKey(lKey) then
     begin
@@ -193,6 +249,7 @@ begin
       EnvDictionay.AddOrSetValue(lKey, lValue);
       EatSpaces;
       MatchInLineComment;
+      Inc(fCurLine);
     end
     else if fCurrChar = #0 then
     begin
@@ -206,8 +263,20 @@ begin
     end
     else
     begin
-      raise EMVCDotEnvParser.CreateFmt('Unexpected char "%s" at line %d', [fCurrChar, fCurLine + 1]);
+      Check(False, Format('Unexpected char "%s" at line %d', [fCurrChar, fCurLine]));
     end;
+  end;
+end;
+
+function TMVCDotEnvParser.PeekNextChar: Char;
+begin
+  if fIndex >= (fCodeLength - 1) then
+  begin
+    Result := #0;
+  end
+  else
+  begin
+    Result := fCode.Chars[fIndex + 1];
   end;
 end;
 
@@ -239,8 +308,8 @@ end;
 
 function TMVCDotEnvParser.MatchIdentifier(out Value: String): Boolean;
 const
-  FirstCharSet = ['a' .. 'z', 'A' .. 'Z', '_', '.'];
-  CharSet = ['0' .. '9'] + FirstCharSet;
+  FirstCharSet = ['a'..'z', 'A'..'Z', '_', '.'];
+  CharSet = ['0'..'9'] + FirstCharSet;
 begin
   Value := '';
   if CharInSet(fCode.Chars[fIndex], FirstCharSet) then
@@ -264,8 +333,9 @@ end;
 function TMVCDotEnvParser.MatchString(out Value: String): Boolean;
   procedure MatchUpToCharacterSingleLine(out Value: String; const Delimiter1: Char);
   begin
-    while (fIndex < fCodeLength) and (fCode.Chars[fIndex] <> Delimiter1) and
-      (not CharInSet(fCode.Chars[fIndex], [#13, #10])) do
+    while (fIndex < fCodeLength)
+        and (fCode.Chars[fIndex] <> Delimiter1)
+        and (not CharInSet(fCode.Chars[fIndex], [#13, #10])) do
     begin
       Check(fCode.Chars[fIndex] <> #0, 'Unexpected end of file');
       Value := Value + fCode.Chars[fIndex];
@@ -274,11 +344,26 @@ function TMVCDotEnvParser.MatchString(out Value: String): Boolean;
   end;
   procedure MatchUpToCharacterMultiLine(out Value: String; const Delimiter1: Char);
   begin
-    while (fIndex < fCodeLength) and (fCode.Chars[fIndex] <> Delimiter1) do
+    while (fCurrChar <> Delimiter1) do
     begin
-      Check(fCode.Chars[fIndex] <> #0, 'Unexpected end of file');
-      Value := Value + fCode.Chars[fIndex];
+      Check(fCurrChar <> #0, 'Unexpected end of file');
+      Value := Value + fCurrChar;
+
+      if Value.EndsWith(fCurrentLineBreak) then
+      begin
+        Inc(fCurLine);
+      end;
+
       NextChar;
+      if fCurrChar = '\' then
+      begin
+        if PeekNextChar = Delimiter1 then
+        begin
+          Value := Value + Delimiter1;
+          NextChar;
+          NextChar;
+        end;
+      end;
     end;
   end;
 
@@ -309,7 +394,16 @@ end;
 
 function TMVCDotEnvParser.MatchValue(out Token: String): Boolean;
 begin
-  Result := MatchString(Token);
+  // First try to match an expression
+  if MatchExpression(Token) then
+  begin
+    Result := True;
+  end
+  else
+  begin
+    // If not an expression, use standard string matching
+    Result := MatchString(Token);
+  end;
 end;
 
 function TMVCDotEnvParser.NextChar: Char;
@@ -317,11 +411,97 @@ begin
   if fIndex >= (fCodeLength - 1) then
   begin
     fIndex := fCodeLength;
-    Exit(#0);
+    fCurrChar := #0;
+  end
+  else
+  begin
+    Inc(fIndex);
+    fCurrChar := fCode.Chars[fIndex];
   end;
-  Inc(fIndex);
-  Result := fCode.Chars[fIndex];
-  fCurrChar := Result;
+  Result := fCurrChar;
+end;
+
+function TMVCDotEnvParser.EvaluateExpression(const Expr: string): string;
+var
+  lResult: Variant;
+  lKey: string;
+begin
+  // Set all current environment variables as expression variables
+  if Assigned(fEnvDict) then
+  begin
+    for lKey in fEnvDict.Keys do
+    begin
+      fExprEvaluator.SetVar(lKey, fEnvDict[lKey]);
+    end;
+  end;
+
+  try
+    lResult := fExprEvaluator.Evaluate(Expr);
+    // Use VariantToString to ensure consistent formatting (dot as decimal separator)
+    Result := fExprEvaluator.VariantToString(lResult);
+  except
+    on E: Exception do
+    begin
+      raise EMVCDotEnvParser
+          .CreateFmt('Expression evaluation error in "%s": %s at line %d', [Expr, E.Message, fCurLine]);
+    end;
+  end;
+end;
+
+function TMVCDotEnvParser.MatchExpression(out Value: string): Boolean;
+var
+  lExpr: string;
+  lStartPos: Integer;
+begin
+  Value := '';
+
+  // Check for $[ syntax
+  if not MatchSymbol('$') then
+    Exit(False);
+
+  if not MatchSymbol('[') then
+  begin
+    // Backtrack - this might be a regular ${} placeholder
+    Dec(fIndex);
+    fCurrChar := fCode.Chars[fIndex];
+    Exit(False);
+  end;
+
+  lStartPos := fIndex;
+  lExpr := '';
+
+  // Find closing bracket
+  while (fCurrChar <> ']') and (fCurrChar <> #0) do
+  begin
+    lExpr := lExpr + fCurrChar;
+    NextChar;
+  end;
+
+  if fCurrChar <> ']' then
+  begin
+    fIndex := lStartPos - 2; // Backtrack past both $ and [
+    NextChar;
+    Exit(False);
+  end;
+
+  // Consume closing bracket
+  NextChar;
+
+  if lExpr.Trim.IsEmpty then
+  begin
+    raise EMVCDotEnvParser.CreateFmt('Empty expression at line %d', [fCurLine]);
+  end;
+
+  try
+    Value := EvaluateExpression(lExpr.Trim);
+    Result := True;
+  except
+    on E: Exception do
+    begin
+      // Re-raise with more context
+      raise EMVCDotEnvParser.CreateFmt('Expression error at line %d: %s', [fCurLine, E.Message]);
+    end;
+  end;
 end;
 
 { TMVCDotEnvDictionary }

@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -68,8 +68,12 @@ uses
   MVCFramework.View.Renderers.Mustache,
   {$ENDIF}
   MVCFramework.Middleware.Compression,
-  MVCFramework.Middleware.StaticFiles, FireDAC.Comp.Client,
-  MVCFramework.ActiveRecord, FDConnectionConfigU, System.IOUtils;
+  MVCFramework.Middleware.Session,
+  MVCFramework.Middleware.StaticFiles,
+  FireDAC.Comp.Client,
+  MVCFramework.ActiveRecord,
+  FDConnectionConfigU,
+  System.IOUtils;
 
 procedure TMainWebModule.WebModuleCreate(Sender: TObject);
 begin
@@ -77,7 +81,6 @@ begin
     procedure(Config: TMVCConfig)
     begin
       // no config here
-      Config[TMVCConfigKey.SessionTimeout] := '0'; // setting cookie
       Config[TMVCConfigKey.PathPrefix] := '';
       Config[TMVCConfigKey.ViewPath] := TPath.Combine(AppPath, '..\templates');
       Config[TMVCConfigKey.DefaultViewFileExtension] := 'html';
@@ -125,6 +128,7 @@ begin
     begin
       Result := TTestFault2Controller.Create; // this will raise an exception
     end)
+    .AddMiddleware(UseMemorySessionMiddleware())
     .AddMiddleware(TMVCSpeedMiddleware.Create)
     .AddMiddleware(TMVCCustomAuthenticationMiddleware.Create(TCustomAuthHandler.Create, '/system/users/logged'))
     .AddMiddleware(TMVCStaticFilesMiddleware.Create('/static', 'www', 'index.html', False))

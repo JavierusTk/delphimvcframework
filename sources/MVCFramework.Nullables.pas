@@ -8,7 +8,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -29,6 +29,10 @@
 
 unit MVCFramework.Nullables;
 
+{$IF CompilerVersion >= 35} // 11 Alexandria
+{$DEFINE USE_EQUALS}
+{$ENDIF}
+
 interface
 
 uses
@@ -37,6 +41,132 @@ uses
 type
   EMVCNullable = class(Exception)
 
+  end;
+
+{$IF CompilerVersion <= 32} // 10.2 Tokyo
+  Float32 = Single;
+  Float64 = Double;
+{$IFEND}
+
+//**************************************************************************************************************
+//** Nullable<T> -- In case of generic-types Delphi compiler generates different RTTI information for each BPL
+//**                To de/serialize a Nullable<T> is required a CustomTypeSerializer
+//**************************************************************************************************************
+
+  Nullable<T> = record
+  private
+    fValue: T;
+    fHasValue: String;
+    function GetHasValue: Boolean;
+	function GetIsNull: Boolean;	
+  public
+    procedure CheckHasValue;
+    function GetValue: T;
+    procedure SetValue(const Value: T);
+    class operator Implicit(const Value: T): Nullable<T>; overload;
+    class operator Implicit(const Value: Nullable<T>): T; overload;
+    class operator Implicit(const Value: Pointer): Nullable<T>; overload;
+	  class operator Equal(LeftValue: Nullable<T>; RightValue: Nullable<T>) : Boolean;	
+    ///<summary>
+    ///Returns `True` if the Nullable<T> contains a value
+    ///</summary>	
+    property HasValue: Boolean read GetHasValue;
+    ///<summary>
+    ///Returns `True` if the Nullable<T> contains a null
+    ///</summary>	
+    property IsNull: Boolean read GetIsNull;	
+    ///<summary>
+    ///Alias of `SetNull`
+    ///</summary>
+    procedure Clear;
+    ///<summary>
+    ///Set the value to `null`
+    ///</summary>
+    procedure SetNull;
+    ///<summary>
+    ///Returns the value stored or the default value for the type if the value is not set
+    ///</summary>	
+    function ValueOrDefault: T;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: T): T;
+    /// <summary>
+    /// Returns true is both item have the same value and that value is not null. 
+    /// </summary>
+    function Equals(const Value: Nullable<T>): Boolean;    
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: T): Boolean; overload;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: TValue): Boolean; overload;
+    ///<summary>
+    ///Returns the value stored or raises exception if no value is stored
+    ///</summary>	
+    property Value: T read GetValue write SetValue;
+  end;
+
+//**************************
+// ** NullableAnsiString
+//**************************
+
+  NullableAnsiString = record
+  private
+    fValue: AnsiString;
+    fHasValue: String;
+    function GetHasValue: Boolean;
+	  function GetIsNull: Boolean;	
+  public
+    procedure CheckHasValue;
+    function GetValue: AnsiString;
+    procedure SetValue(const Value: AnsiString);
+    class operator Implicit(const Value: AnsiString): NullableAnsiString;
+    class operator Implicit(const Value: NullableAnsiString): AnsiString;
+    class operator Implicit(const Value: Pointer): NullableAnsiString;	
+	  class operator Equal(LeftValue: NullableAnsiString; RightValue: NullableAnsiString) : Boolean;	
+    ///<summary>
+    ///Returns `True` if the NullableAnsiString contains a value
+    ///</summary>	
+    property HasValue: Boolean read GetHasValue;
+    ///<summary>
+    ///Returns `True` if the NullableAnsiString contains a null
+    ///</summary>	
+    property IsNull: Boolean read GetIsNull;	
+    ///<summary>
+    ///Alias of `SetNull`
+    ///</summary>
+    procedure Clear;
+    ///<summary>
+    ///Set the value to `null`
+    ///</summary>
+    procedure SetNull;
+    ///<summary>
+    ///Returns the value stored or the default value for the type if the value is not set
+    ///</summary>	
+    function ValueOrDefault: AnsiString;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: AnsiString): AnsiString;    
+    /// <summary>
+    /// Returns true is both item have the same value and that value is not null. 
+    /// </summary>
+    function Equals(const Value: NullableAnsiString): Boolean;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: AnsiString): Boolean; overload;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: TValue): Boolean; overload;
+    ///<summary>
+    ///Returns the value stored or raises exception if no value is stored
+    ///</summary>	
+    property Value: AnsiString read GetValue write SetValue;
   end;
 
 //**************************
@@ -48,7 +178,7 @@ type
     fValue: String;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: String;
@@ -74,9 +204,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: String;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: String): String;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -104,7 +238,7 @@ type
     fValue: Currency;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: Currency;
@@ -130,9 +264,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: Currency;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Currency): Currency;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -160,7 +298,7 @@ type
     fValue: Boolean;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: Boolean;
@@ -186,9 +324,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: Boolean;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Boolean): Boolean;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -216,7 +358,7 @@ type
     fValue: TDate;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: TDate;
@@ -242,9 +384,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: TDate;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: TDate): TDate;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -272,7 +418,7 @@ type
     fValue: TTime;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: TTime;
@@ -298,9 +444,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: TTime;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: TTime): TTime;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -328,7 +478,7 @@ type
     fValue: TDateTime;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: TDateTime;
@@ -354,9 +504,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: TDateTime;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: TDateTime): TDateTime;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -384,7 +538,7 @@ type
     fValue: Single;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: Single;
@@ -410,9 +564,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: Single;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Single): Single;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -440,7 +598,7 @@ type
     fValue: Double;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: Double;
@@ -466,9 +624,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: Double;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Double): Double;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -488,6 +650,126 @@ type
   end;
 
 //**************************
+// ** NullableFloat32
+//**************************
+
+  NullableFloat32 = record
+  private
+    fValue: Float32;
+    fHasValue: String;
+    function GetHasValue: Boolean;
+	  function GetIsNull: Boolean;	
+  public
+    procedure CheckHasValue;
+    function GetValue: Float32;
+    procedure SetValue(const Value: Float32);
+    class operator Implicit(const Value: Float32): NullableFloat32;
+    class operator Implicit(const Value: NullableFloat32): Float32;
+    class operator Implicit(const Value: Pointer): NullableFloat32;	
+	  class operator Equal(LeftValue: NullableFloat32; RightValue: NullableFloat32) : Boolean;	
+    ///<summary>
+    ///Returns `True` if the NullableFloat32 contains a value
+    ///</summary>	
+    property HasValue: Boolean read GetHasValue;
+    ///<summary>
+    ///Returns `True` if the NullableFloat32 contains a null
+    ///</summary>	
+    property IsNull: Boolean read GetIsNull;	
+    ///<summary>
+    ///Alias of `SetNull`
+    ///</summary>
+    procedure Clear;
+    ///<summary>
+    ///Set the value to `null`
+    ///</summary>
+    procedure SetNull;
+    ///<summary>
+    ///Returns the value stored or the default value for the type if the value is not set
+    ///</summary>	
+    function ValueOrDefault: Float32;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Float32): Float32;    
+    /// <summary>
+    /// Returns true is both item have the same value and that value is not null. 
+    /// </summary>
+    function Equals(const Value: NullableFloat32): Boolean;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: Float32): Boolean; overload;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: TValue): Boolean; overload;
+    ///<summary>
+    ///Returns the value stored or raises exception if no value is stored
+    ///</summary>	
+    property Value: Float32 read GetValue write SetValue;
+  end;
+
+//**************************
+// ** NullableFloat64
+//**************************
+
+  NullableFloat64 = record
+  private
+    fValue: Float64;
+    fHasValue: String;
+    function GetHasValue: Boolean;
+	  function GetIsNull: Boolean;	
+  public
+    procedure CheckHasValue;
+    function GetValue: Float64;
+    procedure SetValue(const Value: Float64);
+    class operator Implicit(const Value: Float64): NullableFloat64;
+    class operator Implicit(const Value: NullableFloat64): Float64;
+    class operator Implicit(const Value: Pointer): NullableFloat64;	
+	  class operator Equal(LeftValue: NullableFloat64; RightValue: NullableFloat64) : Boolean;	
+    ///<summary>
+    ///Returns `True` if the NullableFloat64 contains a value
+    ///</summary>	
+    property HasValue: Boolean read GetHasValue;
+    ///<summary>
+    ///Returns `True` if the NullableFloat64 contains a null
+    ///</summary>	
+    property IsNull: Boolean read GetIsNull;	
+    ///<summary>
+    ///Alias of `SetNull`
+    ///</summary>
+    procedure Clear;
+    ///<summary>
+    ///Set the value to `null`
+    ///</summary>
+    procedure SetNull;
+    ///<summary>
+    ///Returns the value stored or the default value for the type if the value is not set
+    ///</summary>	
+    function ValueOrDefault: Float64;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Float64): Float64;    
+    /// <summary>
+    /// Returns true is both item have the same value and that value is not null. 
+    /// </summary>
+    function Equals(const Value: NullableFloat64): Boolean;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: Float64): Boolean; overload;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: TValue): Boolean; overload;
+    ///<summary>
+    ///Returns the value stored or raises exception if no value is stored
+    ///</summary>	
+    property Value: Float64 read GetValue write SetValue;
+  end;
+
+//**************************
 // ** NullableExtended
 //**************************
 
@@ -496,7 +778,7 @@ type
     fValue: Extended;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: Extended;
@@ -522,9 +804,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: Extended;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Extended): Extended;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -544,6 +830,186 @@ type
   end;
 
 //**************************
+// ** NullableInt8
+//**************************
+
+  NullableInt8 = record
+  private
+    fValue: Int8;
+    fHasValue: String;
+    function GetHasValue: Boolean;
+	  function GetIsNull: Boolean;	
+  public
+    procedure CheckHasValue;
+    function GetValue: Int8;
+    procedure SetValue(const Value: Int8);
+    class operator Implicit(const Value: Int8): NullableInt8;
+    class operator Implicit(const Value: NullableInt8): Int8;
+    class operator Implicit(const Value: Pointer): NullableInt8;	
+	  class operator Equal(LeftValue: NullableInt8; RightValue: NullableInt8) : Boolean;	
+    ///<summary>
+    ///Returns `True` if the NullableInt8 contains a value
+    ///</summary>	
+    property HasValue: Boolean read GetHasValue;
+    ///<summary>
+    ///Returns `True` if the NullableInt8 contains a null
+    ///</summary>	
+    property IsNull: Boolean read GetIsNull;	
+    ///<summary>
+    ///Alias of `SetNull`
+    ///</summary>
+    procedure Clear;
+    ///<summary>
+    ///Set the value to `null`
+    ///</summary>
+    procedure SetNull;
+    ///<summary>
+    ///Returns the value stored or the default value for the type if the value is not set
+    ///</summary>	
+    function ValueOrDefault: Int8;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Int8): Int8;    
+    /// <summary>
+    /// Returns true is both item have the same value and that value is not null. 
+    /// </summary>
+    function Equals(const Value: NullableInt8): Boolean;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: Int8): Boolean; overload;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: TValue): Boolean; overload;
+    ///<summary>
+    ///Returns the value stored or raises exception if no value is stored
+    ///</summary>	
+    property Value: Int8 read GetValue write SetValue;
+  end;
+
+//**************************
+// ** NullableUInt8
+//**************************
+
+  NullableUInt8 = record
+  private
+    fValue: UInt8;
+    fHasValue: String;
+    function GetHasValue: Boolean;
+	  function GetIsNull: Boolean;	
+  public
+    procedure CheckHasValue;
+    function GetValue: UInt8;
+    procedure SetValue(const Value: UInt8);
+    class operator Implicit(const Value: UInt8): NullableUInt8;
+    class operator Implicit(const Value: NullableUInt8): UInt8;
+    class operator Implicit(const Value: Pointer): NullableUInt8;	
+	  class operator Equal(LeftValue: NullableUInt8; RightValue: NullableUInt8) : Boolean;	
+    ///<summary>
+    ///Returns `True` if the NullableUInt8 contains a value
+    ///</summary>	
+    property HasValue: Boolean read GetHasValue;
+    ///<summary>
+    ///Returns `True` if the NullableUInt8 contains a null
+    ///</summary>	
+    property IsNull: Boolean read GetIsNull;	
+    ///<summary>
+    ///Alias of `SetNull`
+    ///</summary>
+    procedure Clear;
+    ///<summary>
+    ///Set the value to `null`
+    ///</summary>
+    procedure SetNull;
+    ///<summary>
+    ///Returns the value stored or the default value for the type if the value is not set
+    ///</summary>	
+    function ValueOrDefault: UInt8;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: UInt8): UInt8;    
+    /// <summary>
+    /// Returns true is both item have the same value and that value is not null. 
+    /// </summary>
+    function Equals(const Value: NullableUInt8): Boolean;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: UInt8): Boolean; overload;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: TValue): Boolean; overload;
+    ///<summary>
+    ///Returns the value stored or raises exception if no value is stored
+    ///</summary>	
+    property Value: UInt8 read GetValue write SetValue;
+  end;
+
+//**************************
+// ** NullableByte
+//**************************
+
+  NullableByte = record
+  private
+    fValue: Byte;
+    fHasValue: String;
+    function GetHasValue: Boolean;
+	  function GetIsNull: Boolean;	
+  public
+    procedure CheckHasValue;
+    function GetValue: Byte;
+    procedure SetValue(const Value: Byte);
+    class operator Implicit(const Value: Byte): NullableByte;
+    class operator Implicit(const Value: NullableByte): Byte;
+    class operator Implicit(const Value: Pointer): NullableByte;	
+	  class operator Equal(LeftValue: NullableByte; RightValue: NullableByte) : Boolean;	
+    ///<summary>
+    ///Returns `True` if the NullableByte contains a value
+    ///</summary>	
+    property HasValue: Boolean read GetHasValue;
+    ///<summary>
+    ///Returns `True` if the NullableByte contains a null
+    ///</summary>	
+    property IsNull: Boolean read GetIsNull;	
+    ///<summary>
+    ///Alias of `SetNull`
+    ///</summary>
+    procedure Clear;
+    ///<summary>
+    ///Set the value to `null`
+    ///</summary>
+    procedure SetNull;
+    ///<summary>
+    ///Returns the value stored or the default value for the type if the value is not set
+    ///</summary>	
+    function ValueOrDefault: Byte;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Byte): Byte;    
+    /// <summary>
+    /// Returns true is both item have the same value and that value is not null. 
+    /// </summary>
+    function Equals(const Value: NullableByte): Boolean;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: Byte): Boolean; overload;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: TValue): Boolean; overload;
+    ///<summary>
+    ///Returns the value stored or raises exception if no value is stored
+    ///</summary>	
+    property Value: Byte read GetValue write SetValue;
+  end;
+
+//**************************
 // ** NullableInt16
 //**************************
 
@@ -552,7 +1018,7 @@ type
     fValue: Int16;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: Int16;
@@ -578,9 +1044,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: Int16;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Int16): Int16;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -608,7 +1078,7 @@ type
     fValue: UInt16;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: UInt16;
@@ -634,9 +1104,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: UInt16;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: UInt16): UInt16;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -664,7 +1138,7 @@ type
     fValue: Int32;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: Int32;
@@ -690,9 +1164,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: Int32;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Int32): Int32;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -712,6 +1190,66 @@ type
   end;
 
 //**************************
+// ** NullableInteger
+//**************************
+
+  NullableInteger = record
+  private
+    fValue: Integer;
+    fHasValue: String;
+    function GetHasValue: Boolean;
+	  function GetIsNull: Boolean;	
+  public
+    procedure CheckHasValue;
+    function GetValue: Integer;
+    procedure SetValue(const Value: Integer);
+    class operator Implicit(const Value: Integer): NullableInteger;
+    class operator Implicit(const Value: NullableInteger): Integer;
+    class operator Implicit(const Value: Pointer): NullableInteger;	
+	  class operator Equal(LeftValue: NullableInteger; RightValue: NullableInteger) : Boolean;	
+    ///<summary>
+    ///Returns `True` if the NullableInteger contains a value
+    ///</summary>	
+    property HasValue: Boolean read GetHasValue;
+    ///<summary>
+    ///Returns `True` if the NullableInteger contains a null
+    ///</summary>	
+    property IsNull: Boolean read GetIsNull;	
+    ///<summary>
+    ///Alias of `SetNull`
+    ///</summary>
+    procedure Clear;
+    ///<summary>
+    ///Set the value to `null`
+    ///</summary>
+    procedure SetNull;
+    ///<summary>
+    ///Returns the value stored or the default value for the type if the value is not set
+    ///</summary>	
+    function ValueOrDefault: Integer;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Integer): Integer;    
+    /// <summary>
+    /// Returns true is both item have the same value and that value is not null. 
+    /// </summary>
+    function Equals(const Value: NullableInteger): Boolean;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: Integer): Boolean; overload;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: TValue): Boolean; overload;
+    ///<summary>
+    ///Returns the value stored or raises exception if no value is stored
+    ///</summary>	
+    property Value: Integer read GetValue write SetValue;
+  end;
+
+//**************************
 // ** NullableUInt32
 //**************************
 
@@ -720,7 +1258,7 @@ type
     fValue: UInt32;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: UInt32;
@@ -746,9 +1284,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: UInt32;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: UInt32): UInt32;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -776,7 +1318,7 @@ type
     fValue: Int64;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: Int64;
@@ -802,9 +1344,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: Int64;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: Int64): Int64;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -832,7 +1378,7 @@ type
     fValue: UInt64;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: UInt64;
@@ -858,9 +1404,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: UInt64;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: UInt64): UInt64;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -888,7 +1438,7 @@ type
     fValue: TGUID;
     fHasValue: String;
     function GetHasValue: Boolean;
-	function GetIsNull: Boolean;	
+	  function GetIsNull: Boolean;	
   public
     procedure CheckHasValue;
     function GetValue: TGUID;
@@ -914,9 +1464,13 @@ type
     ///</summary>
     procedure SetNull;
     ///<summary>
-    ///Returns the value stored or the default value for the type is the value is not set
+    ///Returns the value stored or the default value for the type if the value is not set
     ///</summary>	
     function ValueOrDefault: TGUID;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: TGUID): TGUID;    
     /// <summary>
     /// Returns true is both item have the same value and that value is not null. 
     /// </summary>
@@ -935,8 +1489,129 @@ type
     property Value: TGUID read GetValue write SetValue;
   end;
 
+//**************************
+// ** NullableNativeInt
+//**************************
+
+  NullableNativeInt = record
+  private
+    fValue: NativeInt;
+    fHasValue: String;
+    function GetHasValue: Boolean;
+	  function GetIsNull: Boolean;	
+  public
+    procedure CheckHasValue;
+    function GetValue: NativeInt;
+    procedure SetValue(const Value: NativeInt);
+    class operator Implicit(const Value: NativeInt): NullableNativeInt;
+    class operator Implicit(const Value: NullableNativeInt): NativeInt;
+    class operator Implicit(const Value: Pointer): NullableNativeInt;	
+	  class operator Equal(LeftValue: NullableNativeInt; RightValue: NullableNativeInt) : Boolean;	
+    ///<summary>
+    ///Returns `True` if the NullableNativeInt contains a value
+    ///</summary>	
+    property HasValue: Boolean read GetHasValue;
+    ///<summary>
+    ///Returns `True` if the NullableNativeInt contains a null
+    ///</summary>	
+    property IsNull: Boolean read GetIsNull;	
+    ///<summary>
+    ///Alias of `SetNull`
+    ///</summary>
+    procedure Clear;
+    ///<summary>
+    ///Set the value to `null`
+    ///</summary>
+    procedure SetNull;
+    ///<summary>
+    ///Returns the value stored or the default value for the type if the value is not set
+    ///</summary>	
+    function ValueOrDefault: NativeInt;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: NativeInt): NativeInt;    
+    /// <summary>
+    /// Returns true is both item have the same value and that value is not null. 
+    /// </summary>
+    function Equals(const Value: NullableNativeInt): Boolean;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: NativeInt): Boolean; overload;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: TValue): Boolean; overload;
+    ///<summary>
+    ///Returns the value stored or raises exception if no value is stored
+    ///</summary>	
+    property Value: NativeInt read GetValue write SetValue;
+  end;
+
+//**************************
+// ** NullableNativeUInt
+//**************************
+
+  NullableNativeUInt = record
+  private
+    fValue: NativeUInt;
+    fHasValue: String;
+    function GetHasValue: Boolean;
+	  function GetIsNull: Boolean;	
+  public
+    procedure CheckHasValue;
+    function GetValue: NativeUInt;
+    procedure SetValue(const Value: NativeUInt);
+    class operator Implicit(const Value: NativeUInt): NullableNativeUInt;
+    class operator Implicit(const Value: NullableNativeUInt): NativeUInt;
+    class operator Implicit(const Value: Pointer): NullableNativeUInt;	
+	  class operator Equal(LeftValue: NullableNativeUInt; RightValue: NullableNativeUInt) : Boolean;	
+    ///<summary>
+    ///Returns `True` if the NullableNativeUInt contains a value
+    ///</summary>	
+    property HasValue: Boolean read GetHasValue;
+    ///<summary>
+    ///Returns `True` if the NullableNativeUInt contains a null
+    ///</summary>	
+    property IsNull: Boolean read GetIsNull;	
+    ///<summary>
+    ///Alias of `SetNull`
+    ///</summary>
+    procedure Clear;
+    ///<summary>
+    ///Set the value to `null`
+    ///</summary>
+    procedure SetNull;
+    ///<summary>
+    ///Returns the value stored or the default value for the type if the value is not set
+    ///</summary>	
+    function ValueOrDefault: NativeUInt;
+    ///<summary>
+    ///Returns the value stored or else the value passed as parameter if the value is not set
+    ///</summary>	
+    function ValueOrElse(const ElseValue: NativeUInt): NativeUInt;    
+    /// <summary>
+    /// Returns true is both item have the same value and that value is not null. 
+    /// </summary>
+    function Equals(const Value: NullableNativeUInt): Boolean;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: NativeUInt): Boolean; overload;
+    ///<summary>
+    ///Returns true if the nullable contains a value and returns the contained value in the out Value parameter.
+    ///</summary>	
+    function TryHasValue(out Value: TValue): Boolean; overload;
+    ///<summary>
+    ///Returns the value stored or raises exception if no value is stored
+    ///</summary>	
+    property Value: NativeUInt read GetValue write SetValue;
+  end;
+
   TNullableType = (
      ntInvalidNullableType
+   , ntNullableAnsiString
    , ntNullableString
    , ntNullableCurrency
    , ntNullableBoolean
@@ -945,22 +1620,31 @@ type
    , ntNullableTDateTime
    , ntNullableSingle
    , ntNullableDouble
+   , ntNullableFloat32
+   , ntNullableFloat64
    , ntNullableExtended
+   , ntNullableInt8
+   , ntNullableUInt8
+   , ntNullableByte
    , ntNullableInt16
    , ntNullableUInt16
    , ntNullableInt32
+   , ntNullableInteger
    , ntNullableUInt32
    , ntNullableInt64
    , ntNullableUInt64
-   , ntNullableTGUID);
+   , ntNullableTGUID
+   , ntNullableNativeInt
+   , ntNullableNativeUInt);
 
 
 function GetNullableType(const aTypeInfo: PTypeInfo): TNullableType;
 
+
 implementation
 
 uses
-  System.Math, System.DateUtils, System.Types;
+  System.Math, System.DateUtils, System.Types, System.Generics.Defaults;
 
 function DateAreEquals(const DateA, DateB: TDate): Boolean;
 begin
@@ -971,6 +1655,128 @@ function TimeAreEquals(const TimeA, TimeB: TTime): Boolean;
 begin
   Result := CompareValue(TimeA,TimeB, 0.000001) = 0;
 end;
+
+
+{ NullableAnsiString }
+
+procedure NullableAnsiString.CheckHasValue;
+begin
+  if not GetHasValue then
+  begin
+    raise EMVCNullable.Create('NullableAnsiString value is null');
+  end;
+end;
+
+function NullableAnsiString.TryHasValue(out Value: AnsiString): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := fValue;
+  end;
+end;
+
+function NullableAnsiString.TryHasValue(out Value: TValue): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := TValue.From<AnsiString>(fValue);    
+  end;
+end;
+
+
+procedure NullableAnsiString.Clear;
+begin
+  SetNull;
+end;
+
+function NullableAnsiString.Equals(const Value: NullableAnsiString): Boolean;
+begin
+  Result := Self = Value;
+end;
+
+function NullableAnsiString.GetHasValue: Boolean;
+begin
+  Result := fHasValue = '_';
+end;
+
+function NullableAnsiString.GetIsNull: Boolean;
+begin
+  Result := not HasValue;
+end;
+
+function NullableAnsiString.GetValue: AnsiString;
+begin
+  CheckHasValue;
+  Result := fValue;
+end;
+
+class operator NullableAnsiString.Implicit(const Value: NullableAnsiString): AnsiString;
+begin
+  Result := Value.Value;
+end;
+
+class operator NullableAnsiString.Implicit(const Value: AnsiString): NullableAnsiString;
+begin
+  Result.Value := Value;
+end;
+
+class operator NullableAnsiString.Implicit(const Value: Pointer): NullableAnsiString;
+begin
+  if Value = nil then
+  begin
+    Result.SetNull;
+  end
+  else
+  begin
+    raise EInvalidPointer.Create('Pointer value can only be "nil"');
+  end;
+end;
+
+class operator NullableAnsiString.Equal(LeftValue: NullableAnsiString; RightValue: NullableAnsiString) : Boolean;
+begin
+  Result := (LeftValue.IsNull and RightValue.IsNull) or ((LeftValue.HasValue and RightValue.HasValue) and 
+	 (LeftValue.Value = RightValue.Value));
+end;
+
+procedure NullableAnsiString.SetNull;
+begin
+  fValue := Default (AnsiString);
+  fHasValue := '';
+end;
+
+procedure NullableAnsiString.SetValue(const Value: AnsiString);
+begin
+  fValue := Value;
+  fHasValue := '_';
+end;
+
+function NullableAnsiString.ValueOrDefault: AnsiString;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := Default (AnsiString);
+  end;
+end;
+
+function NullableAnsiString.ValueOrElse(const ElseValue: AnsiString): AnsiString;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
 
 
 { NullableString }
@@ -1079,6 +1885,19 @@ begin
     Result := Default (String);
   end;
 end;
+
+function NullableString.ValueOrElse(const ElseValue: String): String;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
 
 
 
@@ -1189,6 +2008,19 @@ begin
   end;
 end;
 
+function NullableCurrency.ValueOrElse(const ElseValue: Currency): Currency;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
 
 
 { NullableBoolean }
@@ -1297,6 +2129,19 @@ begin
     Result := Default (Boolean);
   end;
 end;
+
+function NullableBoolean.ValueOrElse(const ElseValue: Boolean): Boolean;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
 
 
 
@@ -1407,6 +2252,19 @@ begin
   end;
 end;
 
+function NullableTDate.ValueOrElse(const ElseValue: TDate): TDate;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
 
 
 { NullableTTime }
@@ -1515,6 +2373,19 @@ begin
     Result := Default (TTime);
   end;
 end;
+
+function NullableTTime.ValueOrElse(const ElseValue: TTime): TTime;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
 
 
 
@@ -1626,6 +2497,19 @@ begin
   end;
 end;
 
+function NullableTDateTime.ValueOrElse(const ElseValue: TDateTime): TDateTime;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
 
 
 { NullableSingle }
@@ -1734,6 +2618,19 @@ begin
     Result := Default (Single);
   end;
 end;
+
+function NullableSingle.ValueOrElse(const ElseValue: Single): Single;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
 
 
 
@@ -1844,6 +2741,263 @@ begin
   end;
 end;
 
+function NullableDouble.ValueOrElse(const ElseValue: Double): Double;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
+
+
+{ NullableFloat32 }
+
+procedure NullableFloat32.CheckHasValue;
+begin
+  if not GetHasValue then
+  begin
+    raise EMVCNullable.Create('NullableFloat32 value is null');
+  end;
+end;
+
+function NullableFloat32.TryHasValue(out Value: Float32): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := fValue;
+  end;
+end;
+
+function NullableFloat32.TryHasValue(out Value: TValue): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := TValue.From<Float32>(fValue);    
+  end;
+end;
+
+
+procedure NullableFloat32.Clear;
+begin
+  SetNull;
+end;
+
+function NullableFloat32.Equals(const Value: NullableFloat32): Boolean;
+begin
+  Result := Self = Value;
+end;
+
+function NullableFloat32.GetHasValue: Boolean;
+begin
+  Result := fHasValue = '_';
+end;
+
+function NullableFloat32.GetIsNull: Boolean;
+begin
+  Result := not HasValue;
+end;
+
+function NullableFloat32.GetValue: Float32;
+begin
+  CheckHasValue;
+  Result := fValue;
+end;
+
+class operator NullableFloat32.Implicit(const Value: NullableFloat32): Float32;
+begin
+  Result := Value.Value;
+end;
+
+class operator NullableFloat32.Implicit(const Value: Float32): NullableFloat32;
+begin
+  Result.Value := Value;
+end;
+
+class operator NullableFloat32.Implicit(const Value: Pointer): NullableFloat32;
+begin
+  if Value = nil then
+  begin
+    Result.SetNull;
+  end
+  else
+  begin
+    raise EInvalidPointer.Create('Pointer value can only be "nil"');
+  end;
+end;
+
+class operator NullableFloat32.Equal(LeftValue: NullableFloat32; RightValue: NullableFloat32) : Boolean;
+begin
+  Result := (LeftValue.IsNull and RightValue.IsNull) or ((LeftValue.HasValue and RightValue.HasValue) and 
+	 SameValue(LeftValue.Value, RightValue.Value, 0.000001));
+end;
+
+procedure NullableFloat32.SetNull;
+begin
+  fValue := Default (Float32);
+  fHasValue := '';
+end;
+
+procedure NullableFloat32.SetValue(const Value: Float32);
+begin
+  fValue := Value;
+  fHasValue := '_';
+end;
+
+function NullableFloat32.ValueOrDefault: Float32;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := Default (Float32);
+  end;
+end;
+
+function NullableFloat32.ValueOrElse(const ElseValue: Float32): Float32;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
+
+
+{ NullableFloat64 }
+
+procedure NullableFloat64.CheckHasValue;
+begin
+  if not GetHasValue then
+  begin
+    raise EMVCNullable.Create('NullableFloat64 value is null');
+  end;
+end;
+
+function NullableFloat64.TryHasValue(out Value: Float64): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := fValue;
+  end;
+end;
+
+function NullableFloat64.TryHasValue(out Value: TValue): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := TValue.From<Float64>(fValue);    
+  end;
+end;
+
+
+procedure NullableFloat64.Clear;
+begin
+  SetNull;
+end;
+
+function NullableFloat64.Equals(const Value: NullableFloat64): Boolean;
+begin
+  Result := Self = Value;
+end;
+
+function NullableFloat64.GetHasValue: Boolean;
+begin
+  Result := fHasValue = '_';
+end;
+
+function NullableFloat64.GetIsNull: Boolean;
+begin
+  Result := not HasValue;
+end;
+
+function NullableFloat64.GetValue: Float64;
+begin
+  CheckHasValue;
+  Result := fValue;
+end;
+
+class operator NullableFloat64.Implicit(const Value: NullableFloat64): Float64;
+begin
+  Result := Value.Value;
+end;
+
+class operator NullableFloat64.Implicit(const Value: Float64): NullableFloat64;
+begin
+  Result.Value := Value;
+end;
+
+class operator NullableFloat64.Implicit(const Value: Pointer): NullableFloat64;
+begin
+  if Value = nil then
+  begin
+    Result.SetNull;
+  end
+  else
+  begin
+    raise EInvalidPointer.Create('Pointer value can only be "nil"');
+  end;
+end;
+
+class operator NullableFloat64.Equal(LeftValue: NullableFloat64; RightValue: NullableFloat64) : Boolean;
+begin
+  Result := (LeftValue.IsNull and RightValue.IsNull) or ((LeftValue.HasValue and RightValue.HasValue) and 
+	 SameValue(LeftValue.Value, RightValue.Value, 0.000000001));
+end;
+
+procedure NullableFloat64.SetNull;
+begin
+  fValue := Default (Float64);
+  fHasValue := '';
+end;
+
+procedure NullableFloat64.SetValue(const Value: Float64);
+begin
+  fValue := Value;
+  fHasValue := '_';
+end;
+
+function NullableFloat64.ValueOrDefault: Float64;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := Default (Float64);
+  end;
+end;
+
+function NullableFloat64.ValueOrElse(const ElseValue: Float64): Float64;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
 
 
 { NullableExtended }
@@ -1953,6 +3107,382 @@ begin
   end;
 end;
 
+function NullableExtended.ValueOrElse(const ElseValue: Extended): Extended;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
+
+
+{ NullableInt8 }
+
+procedure NullableInt8.CheckHasValue;
+begin
+  if not GetHasValue then
+  begin
+    raise EMVCNullable.Create('NullableInt8 value is null');
+  end;
+end;
+
+function NullableInt8.TryHasValue(out Value: Int8): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := fValue;
+  end;
+end;
+
+function NullableInt8.TryHasValue(out Value: TValue): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := TValue.From<Int8>(fValue);    
+  end;
+end;
+
+
+procedure NullableInt8.Clear;
+begin
+  SetNull;
+end;
+
+function NullableInt8.Equals(const Value: NullableInt8): Boolean;
+begin
+  Result := Self = Value;
+end;
+
+function NullableInt8.GetHasValue: Boolean;
+begin
+  Result := fHasValue = '_';
+end;
+
+function NullableInt8.GetIsNull: Boolean;
+begin
+  Result := not HasValue;
+end;
+
+function NullableInt8.GetValue: Int8;
+begin
+  CheckHasValue;
+  Result := fValue;
+end;
+
+class operator NullableInt8.Implicit(const Value: NullableInt8): Int8;
+begin
+  Result := Value.Value;
+end;
+
+class operator NullableInt8.Implicit(const Value: Int8): NullableInt8;
+begin
+  Result.Value := Value;
+end;
+
+class operator NullableInt8.Implicit(const Value: Pointer): NullableInt8;
+begin
+  if Value = nil then
+  begin
+    Result.SetNull;
+  end
+  else
+  begin
+    raise EInvalidPointer.Create('Pointer value can only be "nil"');
+  end;
+end;
+
+class operator NullableInt8.Equal(LeftValue: NullableInt8; RightValue: NullableInt8) : Boolean;
+begin
+  Result := (LeftValue.IsNull and RightValue.IsNull) or ((LeftValue.HasValue and RightValue.HasValue) and (LeftValue.Value = RightValue.Value));
+end;
+
+procedure NullableInt8.SetNull;
+begin
+  fValue := Default (Int8);
+  fHasValue := '';
+end;
+
+procedure NullableInt8.SetValue(const Value: Int8);
+begin
+  fValue := Value;
+  fHasValue := '_';
+end;
+
+function NullableInt8.ValueOrDefault: Int8;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := Default (Int8);
+  end;
+end;
+
+function NullableInt8.ValueOrElse(const ElseValue: Int8): Int8;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
+
+
+{ NullableUInt8 }
+
+procedure NullableUInt8.CheckHasValue;
+begin
+  if not GetHasValue then
+  begin
+    raise EMVCNullable.Create('NullableUInt8 value is null');
+  end;
+end;
+
+function NullableUInt8.TryHasValue(out Value: UInt8): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := fValue;
+  end;
+end;
+
+function NullableUInt8.TryHasValue(out Value: TValue): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := TValue.From<UInt8>(fValue);    
+  end;
+end;
+
+
+procedure NullableUInt8.Clear;
+begin
+  SetNull;
+end;
+
+function NullableUInt8.Equals(const Value: NullableUInt8): Boolean;
+begin
+  Result := Self = Value;
+end;
+
+function NullableUInt8.GetHasValue: Boolean;
+begin
+  Result := fHasValue = '_';
+end;
+
+function NullableUInt8.GetIsNull: Boolean;
+begin
+  Result := not HasValue;
+end;
+
+function NullableUInt8.GetValue: UInt8;
+begin
+  CheckHasValue;
+  Result := fValue;
+end;
+
+class operator NullableUInt8.Implicit(const Value: NullableUInt8): UInt8;
+begin
+  Result := Value.Value;
+end;
+
+class operator NullableUInt8.Implicit(const Value: UInt8): NullableUInt8;
+begin
+  Result.Value := Value;
+end;
+
+class operator NullableUInt8.Implicit(const Value: Pointer): NullableUInt8;
+begin
+  if Value = nil then
+  begin
+    Result.SetNull;
+  end
+  else
+  begin
+    raise EInvalidPointer.Create('Pointer value can only be "nil"');
+  end;
+end;
+
+class operator NullableUInt8.Equal(LeftValue: NullableUInt8; RightValue: NullableUInt8) : Boolean;
+begin
+  Result := (LeftValue.IsNull and RightValue.IsNull) or ((LeftValue.HasValue and RightValue.HasValue) and (LeftValue.Value = RightValue.Value));
+end;
+
+procedure NullableUInt8.SetNull;
+begin
+  fValue := Default (UInt8);
+  fHasValue := '';
+end;
+
+procedure NullableUInt8.SetValue(const Value: UInt8);
+begin
+  fValue := Value;
+  fHasValue := '_';
+end;
+
+function NullableUInt8.ValueOrDefault: UInt8;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := Default (UInt8);
+  end;
+end;
+
+function NullableUInt8.ValueOrElse(const ElseValue: UInt8): UInt8;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
+
+
+{ NullableByte }
+
+procedure NullableByte.CheckHasValue;
+begin
+  if not GetHasValue then
+  begin
+    raise EMVCNullable.Create('NullableByte value is null');
+  end;
+end;
+
+function NullableByte.TryHasValue(out Value: Byte): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := fValue;
+  end;
+end;
+
+function NullableByte.TryHasValue(out Value: TValue): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := TValue.From<Byte>(fValue);    
+  end;
+end;
+
+
+procedure NullableByte.Clear;
+begin
+  SetNull;
+end;
+
+function NullableByte.Equals(const Value: NullableByte): Boolean;
+begin
+  Result := Self = Value;
+end;
+
+function NullableByte.GetHasValue: Boolean;
+begin
+  Result := fHasValue = '_';
+end;
+
+function NullableByte.GetIsNull: Boolean;
+begin
+  Result := not HasValue;
+end;
+
+function NullableByte.GetValue: Byte;
+begin
+  CheckHasValue;
+  Result := fValue;
+end;
+
+class operator NullableByte.Implicit(const Value: NullableByte): Byte;
+begin
+  Result := Value.Value;
+end;
+
+class operator NullableByte.Implicit(const Value: Byte): NullableByte;
+begin
+  Result.Value := Value;
+end;
+
+class operator NullableByte.Implicit(const Value: Pointer): NullableByte;
+begin
+  if Value = nil then
+  begin
+    Result.SetNull;
+  end
+  else
+  begin
+    raise EInvalidPointer.Create('Pointer value can only be "nil"');
+  end;
+end;
+
+class operator NullableByte.Equal(LeftValue: NullableByte; RightValue: NullableByte) : Boolean;
+begin
+  Result := (LeftValue.IsNull and RightValue.IsNull) or ((LeftValue.HasValue and RightValue.HasValue) and (LeftValue.Value = RightValue.Value));
+end;
+
+procedure NullableByte.SetNull;
+begin
+  fValue := Default (Byte);
+  fHasValue := '';
+end;
+
+procedure NullableByte.SetValue(const Value: Byte);
+begin
+  fValue := Value;
+  fHasValue := '_';
+end;
+
+function NullableByte.ValueOrDefault: Byte;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := Default (Byte);
+  end;
+end;
+
+function NullableByte.ValueOrElse(const ElseValue: Byte): Byte;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
 
 
 { NullableInt16 }
@@ -2060,6 +3590,19 @@ begin
     Result := Default (Int16);
   end;
 end;
+
+function NullableInt16.ValueOrElse(const ElseValue: Int16): Int16;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
 
 
 
@@ -2169,6 +3712,19 @@ begin
   end;
 end;
 
+function NullableUInt16.ValueOrElse(const ElseValue: UInt16): UInt16;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
 
 
 { NullableInt32 }
@@ -2276,6 +3832,140 @@ begin
     Result := Default (Int32);
   end;
 end;
+
+function NullableInt32.ValueOrElse(const ElseValue: Int32): Int32;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
+
+
+{ NullableInteger }
+
+procedure NullableInteger.CheckHasValue;
+begin
+  if not GetHasValue then
+  begin
+    raise EMVCNullable.Create('NullableInteger value is null');
+  end;
+end;
+
+function NullableInteger.TryHasValue(out Value: Integer): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := fValue;
+  end;
+end;
+
+function NullableInteger.TryHasValue(out Value: TValue): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := TValue.From<Integer>(fValue);    
+  end;
+end;
+
+
+procedure NullableInteger.Clear;
+begin
+  SetNull;
+end;
+
+function NullableInteger.Equals(const Value: NullableInteger): Boolean;
+begin
+  Result := Self = Value;
+end;
+
+function NullableInteger.GetHasValue: Boolean;
+begin
+  Result := fHasValue = '_';
+end;
+
+function NullableInteger.GetIsNull: Boolean;
+begin
+  Result := not HasValue;
+end;
+
+function NullableInteger.GetValue: Integer;
+begin
+  CheckHasValue;
+  Result := fValue;
+end;
+
+class operator NullableInteger.Implicit(const Value: NullableInteger): Integer;
+begin
+  Result := Value.Value;
+end;
+
+class operator NullableInteger.Implicit(const Value: Integer): NullableInteger;
+begin
+  Result.Value := Value;
+end;
+
+class operator NullableInteger.Implicit(const Value: Pointer): NullableInteger;
+begin
+  if Value = nil then
+  begin
+    Result.SetNull;
+  end
+  else
+  begin
+    raise EInvalidPointer.Create('Pointer value can only be "nil"');
+  end;
+end;
+
+class operator NullableInteger.Equal(LeftValue: NullableInteger; RightValue: NullableInteger) : Boolean;
+begin
+  Result := (LeftValue.IsNull and RightValue.IsNull) or ((LeftValue.HasValue and RightValue.HasValue) and (LeftValue.Value = RightValue.Value));
+end;
+
+procedure NullableInteger.SetNull;
+begin
+  fValue := Default (Integer);
+  fHasValue := '';
+end;
+
+procedure NullableInteger.SetValue(const Value: Integer);
+begin
+  fValue := Value;
+  fHasValue := '_';
+end;
+
+function NullableInteger.ValueOrDefault: Integer;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := Default (Integer);
+  end;
+end;
+
+function NullableInteger.ValueOrElse(const ElseValue: Integer): Integer;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
 
 
 
@@ -2385,6 +4075,19 @@ begin
   end;
 end;
 
+function NullableUInt32.ValueOrElse(const ElseValue: UInt32): UInt32;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
 
 
 { NullableInt64 }
@@ -2492,6 +4195,19 @@ begin
     Result := Default (Int64);
   end;
 end;
+
+function NullableInt64.ValueOrElse(const ElseValue: Int64): Int64;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
 
 
 
@@ -2601,6 +4317,19 @@ begin
   end;
 end;
 
+function NullableUInt64.ValueOrElse(const ElseValue: UInt64): UInt64;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
 
 
 { NullableTGUID }
@@ -2709,9 +4438,266 @@ begin
   end;
 end;
 
+function NullableTGUID.ValueOrElse(const ElseValue: TGUID): TGUID;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
+
+
+{ NullableNativeInt }
+
+procedure NullableNativeInt.CheckHasValue;
+begin
+  if not GetHasValue then
+  begin
+    raise EMVCNullable.Create('NullableNativeInt value is null');
+  end;
+end;
+
+function NullableNativeInt.TryHasValue(out Value: NativeInt): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := fValue;
+  end;
+end;
+
+function NullableNativeInt.TryHasValue(out Value: TValue): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := TValue.From<NativeInt>(fValue);    
+  end;
+end;
+
+
+procedure NullableNativeInt.Clear;
+begin
+  SetNull;
+end;
+
+function NullableNativeInt.Equals(const Value: NullableNativeInt): Boolean;
+begin
+  Result := Self = Value;
+end;
+
+function NullableNativeInt.GetHasValue: Boolean;
+begin
+  Result := fHasValue = '_';
+end;
+
+function NullableNativeInt.GetIsNull: Boolean;
+begin
+  Result := not HasValue;
+end;
+
+function NullableNativeInt.GetValue: NativeInt;
+begin
+  CheckHasValue;
+  Result := fValue;
+end;
+
+class operator NullableNativeInt.Implicit(const Value: NullableNativeInt): NativeInt;
+begin
+  Result := Value.Value;
+end;
+
+class operator NullableNativeInt.Implicit(const Value: NativeInt): NullableNativeInt;
+begin
+  Result.Value := Value;
+end;
+
+class operator NullableNativeInt.Implicit(const Value: Pointer): NullableNativeInt;
+begin
+  if Value = nil then
+  begin
+    Result.SetNull;
+  end
+  else
+  begin
+    raise EInvalidPointer.Create('Pointer value can only be "nil"');
+  end;
+end;
+
+class operator NullableNativeInt.Equal(LeftValue: NullableNativeInt; RightValue: NullableNativeInt) : Boolean;
+begin
+  Result := (LeftValue.IsNull and RightValue.IsNull) or ((LeftValue.HasValue and RightValue.HasValue) and (LeftValue.Value = RightValue.Value));
+end;
+
+procedure NullableNativeInt.SetNull;
+begin
+  fValue := Default (NativeInt);
+  fHasValue := '';
+end;
+
+procedure NullableNativeInt.SetValue(const Value: NativeInt);
+begin
+  fValue := Value;
+  fHasValue := '_';
+end;
+
+function NullableNativeInt.ValueOrDefault: NativeInt;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := Default (NativeInt);
+  end;
+end;
+
+function NullableNativeInt.ValueOrElse(const ElseValue: NativeInt): NativeInt;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
+
+
+{ NullableNativeUInt }
+
+procedure NullableNativeUInt.CheckHasValue;
+begin
+  if not GetHasValue then
+  begin
+    raise EMVCNullable.Create('NullableNativeUInt value is null');
+  end;
+end;
+
+function NullableNativeUInt.TryHasValue(out Value: NativeUInt): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := fValue;
+  end;
+end;
+
+function NullableNativeUInt.TryHasValue(out Value: TValue): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := TValue.From<NativeUInt>(fValue);    
+  end;
+end;
+
+
+procedure NullableNativeUInt.Clear;
+begin
+  SetNull;
+end;
+
+function NullableNativeUInt.Equals(const Value: NullableNativeUInt): Boolean;
+begin
+  Result := Self = Value;
+end;
+
+function NullableNativeUInt.GetHasValue: Boolean;
+begin
+  Result := fHasValue = '_';
+end;
+
+function NullableNativeUInt.GetIsNull: Boolean;
+begin
+  Result := not HasValue;
+end;
+
+function NullableNativeUInt.GetValue: NativeUInt;
+begin
+  CheckHasValue;
+  Result := fValue;
+end;
+
+class operator NullableNativeUInt.Implicit(const Value: NullableNativeUInt): NativeUInt;
+begin
+  Result := Value.Value;
+end;
+
+class operator NullableNativeUInt.Implicit(const Value: NativeUInt): NullableNativeUInt;
+begin
+  Result.Value := Value;
+end;
+
+class operator NullableNativeUInt.Implicit(const Value: Pointer): NullableNativeUInt;
+begin
+  if Value = nil then
+  begin
+    Result.SetNull;
+  end
+  else
+  begin
+    raise EInvalidPointer.Create('Pointer value can only be "nil"');
+  end;
+end;
+
+class operator NullableNativeUInt.Equal(LeftValue: NullableNativeUInt; RightValue: NullableNativeUInt) : Boolean;
+begin
+  Result := (LeftValue.IsNull and RightValue.IsNull) or ((LeftValue.HasValue and RightValue.HasValue) and (LeftValue.Value = RightValue.Value));
+end;
+
+procedure NullableNativeUInt.SetNull;
+begin
+  fValue := Default (NativeUInt);
+  fHasValue := '';
+end;
+
+procedure NullableNativeUInt.SetValue(const Value: NativeUInt);
+begin
+  fValue := Value;
+  fHasValue := '_';
+end;
+
+function NullableNativeUInt.ValueOrDefault: NativeUInt;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := Default (NativeUInt);
+  end;
+end;
+
+function NullableNativeUInt.ValueOrElse(const ElseValue: NativeUInt): NativeUInt;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
+end;
+
+
 
 function GetNullableType(const aTypeInfo: PTypeInfo): TNullableType;
 begin
+  if aTypeInfo = TypeInfo(NullableAnsiString) then 
+    Exit(ntNullableAnsiString); 
   if aTypeInfo = TypeInfo(NullableString) then 
     Exit(ntNullableString); 
   if aTypeInfo = TypeInfo(NullableCurrency) then 
@@ -2728,14 +4714,26 @@ begin
     Exit(ntNullableSingle); 
   if aTypeInfo = TypeInfo(NullableDouble) then 
     Exit(ntNullableDouble); 
+  if aTypeInfo = TypeInfo(NullableFloat32) then 
+    Exit(ntNullableFloat32); 
+  if aTypeInfo = TypeInfo(NullableFloat64) then 
+    Exit(ntNullableFloat64); 
   if aTypeInfo = TypeInfo(NullableExtended) then 
     Exit(ntNullableExtended); 
+  if aTypeInfo = TypeInfo(NullableInt8) then 
+    Exit(ntNullableInt8); 
+  if aTypeInfo = TypeInfo(NullableUInt8) then 
+    Exit(ntNullableUInt8); 
+  if aTypeInfo = TypeInfo(NullableByte) then 
+    Exit(ntNullableByte); 
   if aTypeInfo = TypeInfo(NullableInt16) then 
     Exit(ntNullableInt16); 
   if aTypeInfo = TypeInfo(NullableUInt16) then 
     Exit(ntNullableUInt16); 
   if aTypeInfo = TypeInfo(NullableInt32) then 
     Exit(ntNullableInt32); 
+  if aTypeInfo = TypeInfo(NullableInteger) then 
+    Exit(ntNullableInteger); 
   if aTypeInfo = TypeInfo(NullableUInt32) then 
     Exit(ntNullableUInt32); 
   if aTypeInfo = TypeInfo(NullableInt64) then 
@@ -2744,7 +4742,137 @@ begin
     Exit(ntNullableUInt64); 
   if aTypeInfo = TypeInfo(NullableTGUID) then 
     Exit(ntNullableTGUID); 
+  if aTypeInfo = TypeInfo(NullableNativeInt) then 
+    Exit(ntNullableNativeInt); 
+  if aTypeInfo = TypeInfo(NullableNativeUInt) then 
+    Exit(ntNullableNativeUInt); 
   Result := ntInvalidNullableType;
+end;
+
+{ Nullable<T> }
+
+procedure Nullable<T>.CheckHasValue;
+begin
+  if not GetHasValue then
+  begin
+    raise EMVCNullable.Create('Nullable<T> value is null');
+  end;
+end;
+
+function Nullable<T>.TryHasValue(out Value: T): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := fValue;
+  end;
+end;
+
+function Nullable<T>.TryHasValue(out Value: TValue): Boolean;
+begin
+  Result := HasValue;
+  if Result then
+  begin
+    Value := TValue.From<Nullable<T>>(fValue);
+  end;
+end;
+
+
+procedure Nullable<T>.Clear;
+begin
+  SetNull;
+end;
+
+function Nullable<T>.Equals(const Value: Nullable<T>): Boolean;
+begin
+  Result := Self = Value;
+end;
+
+function Nullable<T>.GetHasValue: Boolean;
+begin
+  Result := fHasValue = '_';
+end;
+
+function Nullable<T>.GetIsNull: Boolean;
+begin
+  Result := not HasValue;
+end;
+
+function Nullable<T>.GetValue: T;
+begin
+  CheckHasValue;
+  Result := fValue;
+end;
+
+class operator Nullable<T>.Implicit(const Value: Nullable<T>): T;
+begin
+  Result := Value.Value;
+end;
+
+class operator Nullable<T>.Implicit(const Value: T): Nullable<T>;
+begin
+  Result.Value := Value;
+end;
+
+class operator Nullable<T>.Implicit(const Value: Pointer): Nullable<T>;
+begin
+  if Value = nil then
+  begin
+    Result.SetNull;
+  end
+  else
+  begin
+    raise EInvalidPointer.Create('Pointer value can only be "nil"');
+  end;
+end;
+
+class operator Nullable<T>.Equal(LeftValue: Nullable<T>; RightValue: Nullable<T>) : Boolean;
+var
+  lComparer: IEqualityComparer<T>;
+begin
+  lComparer := TEqualityComparer<T>.Default;
+  if not Assigned(lComparer) then
+  begin
+    raise EMVCNullable.Create('Cannot compare Nullable<T> values without a valid IEqualityComparer<T>.');
+  end;
+  Result := (LeftValue.IsNull and RightValue.IsNull)
+    or ((LeftValue.HasValue and RightValue.HasValue) and lComparer.Equals(LeftValue.Value, RightValue.Value));
+end;
+
+procedure Nullable<T>.SetNull;
+begin
+  fValue := Default(T);
+  fHasValue := '';
+end;
+
+procedure Nullable<T>.SetValue(const Value: T);
+begin
+  fValue := Value;
+  fHasValue := '_';
+end;
+
+function Nullable<T>.ValueOrDefault: T;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := Default(T);
+  end;
+end;
+
+function Nullable<T>.ValueOrElse(const ElseValue: T): T;
+begin
+  if HasValue then
+  begin
+    Result := GetValue
+  end
+  else
+  begin
+    Result := ElseValue;
+  end;
 end;
 
 end.

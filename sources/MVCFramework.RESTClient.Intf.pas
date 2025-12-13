@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -309,6 +309,11 @@ type
     function AddFile(const aFileName: string; const aContentType: string = ''): IMVCRESTClient; overload;
 {$IF defined(RIOORBETTER)}
     function AddFile(const aName: string; aFileStreamValue: TStream; const aFileName: string = '';
+      const aContentType: string = ''): IMVCRESTClient; overload;
+{$IF defined(ATHENSORBETTER)} deprecated 'Use AddFile with AOwnsStream parameter'; {$ENDIF}
+{$ENDIF}
+{$IF defined(ATHENSORBETTER)}
+    function AddFile(const aName: string; aFileStreamValue: TStream; AOwnsStream: Boolean; const aFileName: string = '';
       const aContentType: string = ''): IMVCRESTClient; overload;
 {$ENDIF}
     function AddBodyFieldFormData(const aName, aValue: string): IMVCRESTClient; overload;

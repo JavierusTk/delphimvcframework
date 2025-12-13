@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -39,16 +39,8 @@
 {$DEFINE MOBILE}
 {$ENDIF}
 
-{$IF CompilerVersion <= 27} // XE6
-DelphiMVCFramework is compatible with Delphi version XE7 or better
-{$ENDIF}
-
-{$IF CompilerVersion >= 28} // XE7
-{$DEFINE XE7ORBETTER}
-{$ENDIF}
-
-{$IF CompilerVersion >= 29} // XE8
-{$DEFINE XE8ORBETTER}
+{$IF CompilerVersion <= 29} // XE8
+DelphiMVCFramework is compatible with Delphi 10.0 or better
 {$ENDIF}
 
 {$IF CompilerVersion >= 30} // 10.0 Seattle
@@ -79,6 +71,10 @@ DelphiMVCFramework is compatible with Delphi version XE7 or better
 {$DEFINE ATHENSORBETTER}
 {$ENDIF}
 
+{$IF CompilerVersion >= 37} // 13 Florence
+{$DEFINE FLORENCEORBETTER}
+{$ENDIF}
+
 {$IFDEF MOBILE}
 {$LEGACYIFEND OFF}
 {$ENDIF}
@@ -87,7 +83,7 @@ DelphiMVCFramework is compatible with Delphi version XE7 or better
 {$DEFINE JSONBOOL}
 {$ENDIF}
 
-{$IFDEF XE7ORBETTER}
+{$IFDEF SEATTLEORBETTER}
 {$DEFINE SYSTEMNETENCODING}
 {$DEFINE TOJSON}
 {$ENDIF}
@@ -104,3 +100,14 @@ DelphiMVCFramework is compatible with Delphi version XE7 or better
 {$DEFINE CUSTOM_MANAGED_RECORDS}
 {$ENDIF}
 
+{$UNDEF WEBSTENCILS}
+{$IF Defined(ATHENSORBETTER)}
+{$IF declared(RTLVersion122) or (RTLVersion >= 37)}
+{$DEFINE WEBSTENCILS}
+{$ENDIF}
+{$ENDIF}
+
+{$UNDEF FASTCGI}
+{$IF Defined(FLORENCEORBETTER)}
+{$DEFINE FASTCGI}
+{$ENDIF}

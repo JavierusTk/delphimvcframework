@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -34,9 +34,12 @@ procedure FillControllerTemplates(Gen: TMVCCodeGenerator);
 procedure FillWebModuleTemplates(Gen: TMVCCodeGenerator);
 procedure FillWebModuleDFMTemplates(Gen: TMVCCodeGenerator);
 procedure FillJSONRPCTemplates(Gen: TMVCCodeGenerator);
+procedure FillTemplateProTemplates(Gen: TMVCCodeGenerator);
+procedure FillWebStencilsTemplates(Gen: TMVCCodeGenerator);
 procedure FillMustacheTemplates(Gen: TMVCCodeGenerator);
 procedure FillEntitiesTemplates(Gen: TMVCCodeGenerator);
 procedure FillServicesTemplates(Gen: TMVCCodeGenerator);
+procedure FillWebSocketServerTemplates(Gen: TMVCCodeGenerator);
 
 implementation
 
@@ -90,6 +93,21 @@ begin
     ]);
 end;
 
+procedure FillTemplateProTemplates(Gen: TMVCCodeGenerator);
+begin
+  Gen.Commands.AddRange([
+    TUnitTemplateProHelpersDeclarationCommand.Create
+    ]);
+end;
+
+procedure FillWebStencilsTemplates(Gen: TMVCCodeGenerator);
+begin
+  Gen.Commands.AddRange([
+    TUnitWebStencilsHelpersDeclarationCommand.Create
+    ]);
+end;
+
+
 procedure FillServicesTemplates(Gen: TMVCCodeGenerator);
 begin
   Gen.Commands.AddRange([
@@ -101,6 +119,13 @@ procedure FillEntitiesTemplates(Gen: TMVCCodeGenerator);
 begin
   Gen.Commands.AddRange([
     TUnitControllerEntityDeclarationCommand.Create
+    ]);
+end;
+
+procedure FillWebSocketServerTemplates(Gen: TMVCCodeGenerator);
+begin
+  Gen.Commands.AddRange([
+    TUnitWebSocketServerDeclarationCommand.Create
     ]);
 end;
 

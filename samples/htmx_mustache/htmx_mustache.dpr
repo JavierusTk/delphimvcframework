@@ -20,7 +20,8 @@ uses
   WebSiteControllerU in 'WebSiteControllerU.pas',
   DAL in 'DAL.pas',
   MyDataModuleU in '..\renders\MyDataModuleU.pas' {MyDataModule: TDataModule},
-  MVCFramework.HTMX in '..\htmx\MVCFramework.HTMX.pas', MVCFramework.Commons,
+  MVCFramework.Commons,
+  MVCFramework.HTMX,
   MVCFramework.DotEnv;
 
 {$R *.res}
@@ -32,7 +33,7 @@ var
 begin
   ReportMemoryLeaksOnShutdown := True;
   LogI('HTMX DMVCFramework Sample');
-  LogI(Format('Starting HTTP Server on port %d', [APort]));
+  LogI(Format('Listening on http://localhost:%d', [APort]));
   ResetConsole;
   LServer := TIdHTTPWebBrokerBridge.Create(nil);
   try

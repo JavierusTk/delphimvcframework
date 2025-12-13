@@ -13,6 +13,7 @@ uses
   {$ENDIF }
   IdHTTPWebBrokerBridge,
   TemplatePro,
+  MVCFramework.Commons,
   MVCFramework.View.Renderers.TemplatePro,
   Web.WebReq,
   Web.WebBroker,
@@ -29,7 +30,7 @@ var
   LServer: TIdHTTPWebBrokerBridge;
 begin
   ReportMemoryLeaksOnShutdown := True;
-  LogI(Format('Starting HTTP Server on port %d', [APort]));
+  LogI(Format('Starting HTTP Server on http://localhost:%d', [APort]));
   LServer := TIdHTTPWebBrokerBridge.Create(nil);
   try
     LServer.DefaultPort := APort;
@@ -37,7 +38,7 @@ begin
 {$IFDEF MSWINDOWS}
     ShellExecute(0, 'open', PChar('http://localhost:' + inttostr(APort)), nil, nil, SW_SHOW);
 {$ENDIF}
-    LogI('Ctrl+C  to stop the server');
+    LogI('Ctrl+C to stop the server');
     WaitForTerminationSignal;
     EnterInShutdownState;
     LServer.Active := False;
@@ -51,14 +52,7 @@ begin
   try
     if WebRequestHandler <> nil then
       WebRequestHandler.WebModuleClass := WebModuleClass;
-
-    // These filters will be available to the TemplatePro views as if they were the standard ones
-    TTProConfiguration.OnCustomFiltersRegistration := procedure(const TemplateProCompiledTemplate: ITProCompiledTemplate)
-    begin
-      TemplateProCompiledTemplate.AddFilter('MyHelper1', MyHelper1);
-      TemplateProCompiledTemplate.AddFilter('MyHelper2', MyHelper2);
-    end;
-
+    TemplateProContextConfigure;
     RunServer(8080);
   except
     on E: Exception do

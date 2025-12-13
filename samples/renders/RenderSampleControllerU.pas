@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -38,7 +38,7 @@ uses
 
 type
 
-  [MVCPath('/')]
+  [MVCPath]
   TRenderSampleController = class(TMVCController)
   protected
     procedure OnBeforeAction(AContext: TWebContext; const AActionName: string;
@@ -243,8 +243,13 @@ type
     procedure RaiseExceptionHTML;
 
     [MVCHTTPMethod([httpGET])]
-    [MVCPath('/customserializationtype')]
-    procedure GetCustomSerializationType;
+    [MVCPath('/customserializationtype/root')]
+    procedure GetCustomSerializationTypeROOT;
+
+    [MVCHTTPMethod([httpGET])]
+    [MVCPath('/customserializationtype/attribute')]
+    procedure GetCustomSerializationTypeATTRIBUTE;
+
 
     [MVCHTTPMethod([httpGET])]
     [MVCPath('/simplearray')]
@@ -716,9 +721,15 @@ begin
   end;
 end;
 
-procedure TRenderSampleController.GetCustomSerializationType;
+procedure TRenderSampleController.GetCustomSerializationTypeATTRIBUTE;
 begin
-  // TSysUser contains a type with a custom serializer
+  // TSysUser2 contains a type with a custom serializer
+  Render(TSysUser2.Create('daniele', ['poweruser', 'role1', 'role2']), True);
+end;
+
+procedure TRenderSampleController.GetCustomSerializationTypeROOT;
+begin
+  // TSysUser is a type with a custom serializer
   Render(TSysUser.Create('daniele', ['poweruser', 'role1', 'role2']), True);
 end;
 
@@ -830,8 +841,7 @@ begin
   Cust.AddressLine2 := '00100';
   Cust.City := 'ROME';
   ViewData['customer'] := Cust;
-  LoadView(['header', 'customer', 'footer']);
-  RenderResponseStream;
+  Render(RenderViews(['header', 'customer', 'footer']));
   { If you need more flexibility, you can use GetRenderedView to compose your
     output using small views.
     Here's an example:

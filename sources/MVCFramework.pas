@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -45,6 +45,7 @@ uses
   System.SysUtils,
   System.TypInfo,
   System.IOUtils,
+  System.SysConst,
   System.SyncObjs,
   System.DateUtils,
   System.Generics.Collections,
@@ -55,7 +56,6 @@ uses
   MVCFramework.DuckTyping,
   MVCFramework.Logger,
   MVCFramework.Container,
-  MVCFramework.ApplicationSession,
   MVCFramework.Serializer.Intf,
 
 {$IF Defined(WEBAPACHEHTTP)}
@@ -86,7 +86,8 @@ uses
   Swag.Doc,
   Swag.Common.Types,
   MVCFramework.Commons,
-  MVCFramework.Serializer.Commons;
+  MVCFramework.Serializer.Commons,
+  MVCFramework.Swagger.Commons;
 
 type
 
@@ -346,15 +347,6 @@ type
     property ServiceName: String read fServiceName;
   end;
 
-  // test
-  // TMVCHackHTTPAppRequest = class(TIdHTTPAppRequest)
-  // private
-  // function GetHeaders: TStringList;
-  // public
-  // property Headers: TStringList read GetHeaders;
-  // end;
-  // test-end
-
   TMVCWebRequest = class
   private
     FQueryParams: TDictionary<string, string>;
@@ -392,6 +384,7 @@ type
     function ClientIp: string;
     function ClientPrefer(const AMediaType: string): Boolean;
     function ClientPreferHTML: Boolean;
+    function ClientPreferredLanguage(): String;
     function GetOverwrittenHTTPMethod: TMVCHTTPMethodType;
 
     function SegmentParam(const AParamName: string; out AValue: string): Boolean;
@@ -478,6 +471,7 @@ type
     function GetStatusCode: Integer;
     function GetCookies: TCookieCollection;
     function GetContentType: string;
+    function GetContentEncoding: string;
     function GetLocation: string;
     function GetContent: string;
     procedure SetReasonString(const AValue: string);
@@ -485,6 +479,7 @@ type
     procedure SetContentType(const AValue: string);
     procedure SetLocation(const AValue: string);
     procedure SetContent(const AValue: string);
+    procedure SetContentEncoding(const Value: string);
   public
     constructor Create(const AWebResponse: TWebResponse);
     destructor Destroy; override;
@@ -495,6 +490,7 @@ type
     property StatusCode: Integer read GetStatusCode write SetStatusCode;
     property ReasonString: string read GetReasonString write SetReasonString;
     property ContentType: string read GetContentType write SetContentType;
+    property ContentEncoding: string read GetContentEncoding write SetContentEncoding;
     property CustomHeaders: TStrings read GetCustomHeaders;
     property Cookies: TCookieCollection read GetCookies;
     property Location: string read GetLocation write SetLocation;
@@ -512,11 +508,11 @@ type
     FCustomData: TMVCCustomData;
     procedure SetLoggedSince(const AValue: TDateTime);
     procedure SetCustomData(const Value: TMVCCustomData);
+    function GetIsValid: Boolean;
   public
     constructor Create;
     destructor Destroy; override;
 
-    function IsValid: Boolean;
     procedure Clear;
 
     procedure SaveToSession(const AWebSession: TMVCWebSession);
@@ -527,6 +523,7 @@ type
     property LoggedSince: TDateTime read FLoggedSince write SetLoggedSince;
     property Realm: string read FRealm write FRealm;
     property CustomData: TMVCCustomData read FCustomData write SetCustomData;
+    property IsValid: Boolean read GetIsValid;
   end;
 
   TWebContext = class
@@ -542,6 +539,8 @@ type
     fData: TMVCStringDictionary;
     fIntfObject: IInterface;
     fServiceContainerResolver: IMVCServiceContainerResolver;
+    fSessionFactory: TMVCWebSessionFactory;
+    function GetSessionFactory: TMVCWebSessionFactory; inline;
     function GetWebSession: TMVCWebSession;
     function GetLoggedUser: TUser;
     function GetParamsTable: TMVCRequestParamsTable;
@@ -549,21 +548,21 @@ type
     function GetHostingFrameworkType: TMVCHostingFrameworkType;
     function GetIntfObject: IInterface;
     procedure SetIntfObject(const Value: IInterface);
+    function GetLoggedUserExists: Boolean;
   protected
     fActionQualifiedName: String;
     procedure Flush; virtual;
-    procedure BindToSession(const ASessionId: string);
-    function SendSessionCookie(const AContext: TWebContext): string;
-    function AddSessionToTheSessionList(const ASessionType, ASessionId: string;
-      const ASessionTimeout: Integer): TMVCWebSession;
     function GetData: TMVCStringDictionary;
+    procedure InternalSessionStart(var Session: TMVCWebSession);
+    procedure FreeSession;
   public
     constructor Create(const AServiceContainerResolver: IMVCServiceContainerResolver; const ARequest: TWebRequest; const AResponse: TWebResponse;
       const AConfig: TMVCConfig; const ASerializers: TDictionary<string, IMVCSerializer>);
     destructor Destroy; override;
 
-    procedure SessionStart(const SessionType: String); virtual;
+    procedure SessionStart; virtual;
     procedure SessionStop(const ARaiseExceptionIfExpired: Boolean = True); virtual;
+    procedure SetSessionFactory(const SessionFactory: TMVCWebSessionFactory);
 
     function SessionStarted: Boolean;
     function SessionId: string;
@@ -572,6 +571,7 @@ type
 
     property HostingFrameworkType: TMVCHostingFrameworkType read GetHostingFrameworkType;
     property LoggedUser: TUser read GetLoggedUser;
+    property LoggedUserExists: Boolean read GetLoggedUserExists;
     property Request: TMVCWebRequest read FRequest;
     property Response: TMVCWebResponse read FResponse;
     property Session: TMVCWebSession read GetWebSession;
@@ -594,11 +594,8 @@ type
   TMVCBase = class
   private
     FEngine: TMVCEngine;
-    FApplicationSession: TWebApplicationSession;
     function GetEngine: TMVCEngine;
     function GetConfig: TMVCConfig;
-    function GetApplicationSession: TWebApplicationSession;
-    procedure SetApplicationSession(const AValue: TWebApplicationSession);
     procedure SetEngine(const AValue: TMVCEngine);
   protected
     class function GetApplicationFileName: string; static;
@@ -606,8 +603,6 @@ type
   public
     property Engine: TMVCEngine read GetEngine write SetEngine;
     property Config: TMVCConfig read GetConfig;
-    property ApplicationSession: TWebApplicationSession read GetApplicationSession
-      write SetApplicationSession;
   end;
 
   TMVCResponse = class;
@@ -707,7 +702,7 @@ type
     FResponseStream: TStringBuilder;
   protected
     function ToMVCList(const AObject: TObject; AOwnsObject: Boolean = False): IMVCList;
-    function StatusCodeResponse(const StatusCode: Word; const Body: TObject; const Message: String = ''): IMVCResponse;
+    function InternalStatusCodeResponse(const StatusCode: Word; const Body: TObject; const Message: String = ''): IMVCResponse;
   public { this must be public because of entity processors }
     constructor Create; virtual;
     destructor Destroy; override;
@@ -721,6 +716,7 @@ type
     procedure SetContext(const Context: TWebContext);
     procedure Redirect(const AUrl: string); virtual;
     procedure ResponseStatus(const AStatusCode: Integer; const AReasonString: string = ''); virtual;
+    property ContentType: string read GetContentType write SetContentType;
     class procedure InternalRenderMVCResponse(const Controller: TMVCRenderer; const MVCResponse: TMVCResponse);
 
     ////////////////////////////////////////////////////////////////////////////
@@ -750,9 +746,15 @@ type
       ConflictResult
       InternalServerErrorResult
       RedirectResult
+      StatusResponse --> Generic Status
     }
 
+    function StatusResponse(const StatusCode: Word; const Body: TObject): IMVCResponse; overload;
+    function StatusResponse(const StatusCode: Word; const Message: String): IMVCResponse; overload;
+    function StatusResponse(const StatusCode: Word): IMVCResponse; overload;
+
     function OKResponse(const Body: TObject): IMVCResponse; overload;
+    function OKResponse(const Body: IMVCObjectDictionary): IMVCResponse; overload;
     function OKResponse(const Message: String): IMVCResponse; overload;
     function OKResponse: IMVCResponse; overload;
 
@@ -764,16 +766,24 @@ type
 
     function NoContentResponse: IMVCResponse;
 
-    function UnauthorizedResponse: IMVCResponse;
+    function UnauthorizedResponse: IMVCResponse; overload;
+    function UnauthorizedResponse(const Message: String): IMVCResponse; overload;
+
+    function ForbiddenResponse: IMVCResponse; overload;
+    function ForbiddenResponse(const Message: String): IMVCResponse; overload;
 
     function BadRequestResponse(const Error: TObject): IMVCResponse; overload;
     function BadRequestResponse: IMVCResponse; overload;
     function BadRequestResponse(const Message: String): IMVCResponse; overload;
 
-    function CreatedResponse(const Location: string = ''; const Body: TObject = nil): IMVCResponse; overload;
+    function UnprocessableContentResponse(const Error: TObject): IMVCResponse; overload;
+    function UnprocessableContentResponse: IMVCResponse; overload;
+    function UnprocessableContentResponse(const Message: String): IMVCResponse; overload;
+
+    function CreatedResponse(const Location: string = ''; const Body: TObject = nil; const AOwns: Boolean = True): IMVCResponse; overload;
     function CreatedResponse(const Location: string; const Message: String): IMVCResponse; overload;
 
-    function AcceptedResponse(const Location: string = ''; const Body: TObject = nil): IMVCResponse;
+    function AcceptedResponse(const Location: string = ''; const Body: TObject = nil; const Message: String = ''): IMVCResponse; overload;
 
     function ConflictResponse: IMVCResponse;
 
@@ -878,29 +888,40 @@ type
       const Retry: Integer = TMVCConstants.SSE_RETRY_DEFAULT);
   end;
 
+  TMVCSSVBeforeRenderCallback = reference to procedure(const TemplateRenderInstance: TObject);
+
   TMVCController = class(TMVCRenderer)
   private
-    FViewModel: TMVCViewDataObject;
+    fViewModel: TMVCViewDataObject;
     fPageHeaders: TArray<String>;
     fPageFooters: TArray<String>;
+    fFreeList: TObjectList<TObject>;
     function GetSession: TMVCWebSession;
     function GetViewData(const aModelName: string): TValue;
     procedure SetViewData(const aModelName: string; const Value: TValue);
+    procedure InternalToFree(aObject: TObject);
   protected const
     CLIENTID_KEY = '__clientid';
   protected
     procedure MVCControllerAfterCreate; virtual;
     procedure MVCControllerBeforeDestroy; virtual;
 
-    procedure OnBeforeAction(AContext: TWebContext; const AActionName: string;
+    /// <summary>
+    ///   After action execution frees all the objects added. Works only with functional actions.
+    /// </summary>
+    function ToFree<T: class>(aObject: T): T; overload;
+    procedure ToFree(aObject: TObject); overload;
+
+    procedure OnBeforeAction(aContext: TWebContext; const aActionName: string;
       var AHandled: Boolean); virtual;
-    procedure OnAfterAction(AContext: TWebContext; const AActionName: string); virtual;
+    procedure OnAfterAction(aContext: TWebContext; const aActionName: string); virtual;
+
+    procedure OnException(const aContext: TWebContext; const aException: Exception; var aHandled: Boolean); virtual;
 
     function GetClientId: string;
     function GetCurrentWebModule: TWebModule;
     function GetViewModel: TMVCViewDataObject;
-    function GetRenderedView(const AViewNames: TArray<string>): string; overload; virtual;
-    function GetRenderedView(const AViewNames: TArray<string>; const JSONModel: TJSONObject): string; overload; virtual;
+    function GetRenderedView(const aViewNames: TArray<string>; const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback = nil): string; overload; virtual;
 
     /// <summary>
     ///   Normally used in OnBeforeControllerAction to define view headers automatically used by the Page method.
@@ -912,39 +933,27 @@ type
     /// </summary>
     procedure SetPagesCommonFooters(const AViewNames: TArray<string>);
 
-    /// <summary>
-    ///   Page calls GetRenderedView with sensible defaults.
-    ///   Page method just concatenate -> commonheader_header_views + views + commonfooter_views
-    ///   PageFragment ignore header and footer views
-    /// </summary>
-    function Page(const AViewNames: TArray<string>; const UseCommonHeadersAndFooters: Boolean = True): string; overload; inline;
+    function Page(const AViewNames: TArray<string>; const UseCommonHeadersAndFooters: Boolean = True; const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback = nil): string; overload; deprecated 'Use RenderViews';
+    function Page(const AViewName: string; const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback = nil): string; overload; deprecated 'Use RenderView';
 
     /// <summary>
-    ///   Page calls GetRenderedView with sensible defaults.
-    ///   Page method with UseCommonHeadersAndFooters = True (default) concatenates
-    //    commonheader_header_views + views + commonfooter_views
+    ///   RenderTemplate renders all views concatenating them (optionally with commone headers and footers) with sensible defaults.
     /// </summary>
-    function Page(const AViewNames: TArray<string>; const JSONModel: TJSONObject; const UseCommonHeadersAndFooters: Boolean = True): string; overload; inline;
 
+    function RenderViews(const AViewNames: TArray<string>; const UseCommonHeadersAndFooters: Boolean = True; const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback = nil): string; overload; inline;
     /// <summary>
-    ///   PageFragment calls GetRenderedView.
-    ///   PageFragment ignore header and footer views.
+    ///   RenderTemplate renders a single view with sensible defaults.
     /// </summary>
-    function PageFragment(const AViewNames: TArray<string>): string; overload; inline;
-
-    /// <summary>
-    ///   PageFragment calls GetRenderedView.
-    ///   PageFragment ignore header and footer views.
-    /// </summary>
-    function PageFragment(const AViewNames: TArray<string>; const JSONModel: TJSONObject): string; overload; inline;
+    function RenderView(const AViewName: string; const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback = nil): string; overload;
+    function RenderView(const AViewName: string; const UseCommonHeadersAndFooters: Boolean; const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback = nil): string; overload;
 
     /// <summary>
     /// Load mustache view located in TMVCConfigKey.ViewsPath
     /// returns the rendered views and generates output using
     /// models pushed using Push* methods.
-    /// Do not use thie method directly. Use Page and PageFragment, instead.
+    /// Do not use thie method directly. Use Page, instead.
     /// </summary>
-    function LoadView(const AViewNames: TArray<string>; const JSONModel: TJSONObject = nil): string; virtual;
+    //function LoadView(const AViewNames: TArray<string>; const JSONModel: TJSONObject = nil): string; virtual;
 
     function SessionAs<T: TMVCWebSession>: T;
     procedure RaiseSessionExpired; virtual;
@@ -960,7 +969,6 @@ type
     // Properties
     property Context: TWebContext read GetContext write SetContext;
     property Session: TMVCWebSession read GetSession;
-    property ContentType: string read GetContentType write SetContentType;
     property StatusCode: Integer read GetStatusCode write SetStatusCode;
     procedure PushObjectToView(const aModelName: string; const AModel: TObject);
       deprecated 'Use "ViewData"';
@@ -1048,8 +1056,7 @@ type
   TMVCExceptionHandlerProc = reference to procedure(E: Exception;
     SelectedController: TMVCController; WebContext: TWebContext; var ExceptionHandled: Boolean);
   TMVCRouterLogState = (rlsRouteFound, rlsRouteNotFound);
-  TMVCRouterLogHandlerProc = reference to procedure(const Router: TMVCCustomRouter;
-    const RouterLogState: TMVCRouterLogState; const WebContext: TWebContext);
+  TMVCRouterLogHandlerProc = reference to procedure(const RouterLogState: TMVCRouterLogState; const WebContext: TWebContext);
   TMVCJSONRPCExceptionHandlerProc = reference to procedure(E: Exception;
     { SelectedController: TMVCController; //YAGNI }
     WebContext: TWebContext;
@@ -1073,10 +1080,10 @@ type
     fConfigCache_DefaultContentType: String;
     fConfigCache_DefaultContentCharset: String;
     fConfigCache_PathPrefix: String;
+    fConfigCache_UseViewCache: Boolean;
     fSerializers: TDictionary<string, IMVCSerializer>;
     fMiddlewares: TList<IMVCMiddleware>;
     fControllers: TObjectList<TMVCControllerDelegate>;
-    fApplicationSession: TWebApplicationSession;
     fSavedOnBeforeDispatch: THTTPMethodEvent;
     fOnException: TMVCExceptionHandlerProc;
     fOnRouterLog: TMVCRouterLogHandlerProc;
@@ -1089,9 +1096,6 @@ type
     function GetViewEngineClass: TMVCViewEngineClass;
     procedure HandleDefaultValueForInjectedParameter(var InjectedParamValue: String;
       const InjectableParamAttribute: MVCInjectableParamAttribute);
-//    procedure FillActualParamsForConstructor(
-//      const AActionFormalParams: TArray<TRttiParameter>;
-//      var AActualParams: TArray<TValue>);
   protected
     procedure DoWebContextCreateEvent(const AContext: TWebContext); inline;
     procedure DoWebContextDestroyEvent(const AContext: TWebContext); inline;
@@ -1123,18 +1127,11 @@ type
       const ControllerClass: TMVCControllerClazz;
       const ConstructorMethod: TRttiMethod): TMVCController;
   public
-    class function GetCurrentSession(const ASessionId: string;
-      const ARaiseExceptionIfExpired: Boolean = True): TMVCWebSession; static;
-    class function ExtractSessionIdFromWebRequest(const AWebRequest: TWebRequest): string; static;
-    class function SendSessionCookie(const AContext: TWebContext): string; overload; static;
-    class function SendSessionCookie(const AContext: TWebContext; const ASessionId: string): string;
-      overload; static;
+    class function ExtractSessionIdFromWebRequest(const AWebRequest: TWebRequest; out SessionCookieMustSent: Boolean): string; static;
     class procedure ClearSessionCookiesAlreadySet(const ACookies: TCookieCollection); static;
   public
     constructor Create(const AWebModule: TWebModule; const AConfigAction: TProc<TMVCConfig> = nil); reintroduce;
     destructor Destroy; override;
-
-    function GetSessionBySessionId(const ASessionId: string): TMVCWebSession;
 
     { webcontext events}
     procedure OnWebContextCreate(const WebContextCreateEvent: TWebContextCreateEvent);
@@ -1147,6 +1144,7 @@ type
     function AddMiddleware(const AMiddleware: IMVCMiddleware): TMVCEngine;
     function AddController(const AControllerClazz: TMVCControllerClazz;
       const AURLSegment: string = ''): TMVCEngine; overload;
+    function RegisterRoute(const AURLSegment: string; const AControllerClazz: TMVCControllerClazz): TMVCEngine;
     function AddController(const AControllerClazz: TMVCControllerClazz;
       const ACreateAction: TMVCControllerCreateAction; const AURLSegment: string = '')
       : TMVCEngine; overload;
@@ -1163,8 +1161,6 @@ type
     property Config: TMVCConfig read FConfig;
     property Middlewares: TList<IMVCMiddleware> read FMiddlewares;
     property Controllers: TObjectList<TMVCControllerDelegate> read FControllers;
-    property ApplicationSession: TWebApplicationSession read FApplicationSession
-      write FApplicationSession;
     property OnRouterLog: TMVCRouterLogHandlerProc read fOnRouterLog write fOnRouterLog;
   end;
 
@@ -1236,7 +1232,9 @@ type
     property StatusCode: Integer read GetStatusCode write SetStatusCode;
     [MVCDoNotSerialize]
     property Headers: TStringList read GetHeaders write SetHeaders;
+    [MVCSwagJsonSchemaField(stString, 'message', 'Message', False)]
     property Message: string read GetMessage write SetMessage;
+    [MVCSwagJsonSchemaField(stObject, 'data', 'Data Object', False)]
     property Data: TObject read GetData write SetData;
     property ObjectDictionary: IMVCObjectDictionary read GetObjectDictionary write SetObjectDictionary;
   end;
@@ -1254,9 +1252,12 @@ type
     destructor Destroy; override;
     function GetIgnoredList: TMVCIgnoredList; override;
     property Classname: string read fClassname write fClassname;
+    [MVCSwagJsonSchemaField(stString, 'detailmessage', 'Detailed error message', False)]
     property DetailedMessage: string read fDetailedMessage write fDetailedMessage;
+    [MVCSwagJsonSchemaField(stInt64, 'apperrorcode', 'Application specific error code', False)]
     property AppErrorCode: Integer read fAppErrorCode write SetAppErrorCode;
     [MVCListOf(TMVCErrorResponseItem)]
+    [MVCSwagJsonSchemaField(stArray, 'items', 'Detailed items error', False, True)]
     property Items: TObjectList<TMVCErrorResponseItem> read fItems;
   end;
 
@@ -1270,19 +1271,20 @@ type
     FViewModel: TMVCViewDataObject;
     FContentType: string;
     FOutput: string;
+    FController: TMVCController;
   protected
-    FJSONModel: TJSONObject;
-    function GetRealFileName(const AViewName: string): string; virtual;
+    FViewPath: string;
+    FDefaultViewFileExtension: string;
+    FUseViewCache: Boolean;
+    FBeforeRenderCallback: TMVCSSVBeforeRenderCallback;
+    function GetRealFileName(const AViewName: string; out ActualCalculatedFileName: String): string; virtual;
     function IsCompiledVersionUpToDate(const AFileName, ACompiledFileName: string): Boolean; virtual; abstract;
   public
-    constructor Create(const AEngine: TMVCEngine; const AWebContext: TWebContext;
-      const AViewModel: TMVCViewDataObject;
-      const AContentType: string); overload; virtual;
     constructor Create(
       const AEngine: TMVCEngine;
       const AWebContext: TWebContext;
+      const AController: TMVCController;
       const AViewModel: TMVCViewDataObject;
-      const AJSONModel: TJSONObject;
       const AContentType: string); overload; virtual;
     destructor Destroy; override;
 
@@ -1297,6 +1299,7 @@ type
 
 function IsShuttingDown: Boolean;
 procedure EnterInShutdownState;
+function GetErrorPageHandler(const ErrorPageURL: String): TMVCExceptionHandlerProc;
 
 type
   IMVCResponseBuilder = interface
@@ -1315,6 +1318,7 @@ implementation
 
 uses
   IdURI,
+  IdStack,
   System.StrUtils,
   sqids,
   MVCFramework.SysControllers,
@@ -1324,11 +1328,11 @@ uses
   MVCFramework.Rtti.Utils,
   MVCFramework.Serializer.HTML,
   MVCFramework.Serializer.Abstract,
-  MVCFramework.Utils, MVCFramework.Serializer.Text;
+  MVCFramework.Utils,
+  MVCFramework.Serializer.Text;
 
 var
   gIsShuttingDown: Boolean = False;
-  gMVCGlobalActionParamsCache: TMVCStringObjectDictionary<TMVCActionParamCacheItem> = nil;
   gHostingFramework: TMVCHostingFrameworkType = hftUnknown;
   gEncodingUTF8: TEncoding;
 
@@ -1370,6 +1374,39 @@ end;
 procedure EnterInShutdownState;
 begin
   gIsShuttingDown := True;
+end;
+
+
+function GenerateSessionID: string;
+begin
+  Result := StringReplace(StringReplace(StringReplace(
+    'DT' + GUIDToString(TGUID.NewGuid) + GUIDToString(TGUID.NewGuid) + GUIDToString(TGUID.NewGuid),
+    '}', '', [rfReplaceAll]),
+    '{', '', [rfReplaceAll]),
+    '-', '', [rfReplaceAll]);
+end;
+
+function GetErrorPageHandler(const ErrorPageURL: String): TMVCExceptionHandlerProc;
+begin
+  Result := procedure(E: Exception; SelectedController: TMVCController; WebContext: TWebContext; var ExceptionHandled: Boolean)
+            var
+              lRedirectionURL: String;
+            begin
+              if E is EMVCException then
+              begin
+                WebContext.Response.Content :=
+                  Format('HTTP %d - %s: %s', [EMVCException(E).HTTPStatusCode, E.ClassName, E.Message]);
+              end
+              else
+              begin
+               WebContext.Response.Content :=
+                  Format('HTTP %d - %s: %s', [HTTP_STATUS.InternalServerError, E.ClassName, E.Message]);
+              end;
+              WebContext.Response.StatusCode := HTTP_STATUS.Found;
+              lRedirectionURL := ErrorPageURL + '?class=' + URLEncode(E.ClassName) + '&error=' + URLEncode(E.Message);
+              WebContext.Response.SetCustomHeader('location', lRedirectionURL);
+              ExceptionHandled := True;
+            end;
 end;
 
 function GetRequestShortDescription(const AWebRequest: TWebRequest): String;
@@ -1520,9 +1557,10 @@ var
 begin
   if (FBody = EmptyStr) then
   begin
-    if (FCharset = EmptyStr) or (SameText(FCharset, TMVCCharSet.UTF_8)) then
+    if (FCharset = EmptyStr) or SameText(FCharset, TMVCCharSet.UTF_8) or SameText(FCharset, TMVCCharSet.UTF_8_WITHOUT_DASH) then
     begin
       lFreeEncoding := False;
+      FCharset := TMVCCharSet.UTF_8;
       lEncoding := gEncodingUTF8; //utf-8 is the most used encoding, we have a global instance
     end
     else
@@ -1530,6 +1568,7 @@ begin
       lFreeEncoding := True;
       lEncoding := TEncoding.GetEncoding(FCharset);
     end;
+
     try
 {$IF Defined(BERLINORBETTER)}
       FWebRequest.ReadTotalContent; // Otherwise ISAPI Raises "Empty BODY"
@@ -1661,12 +1700,21 @@ end;
 
 function TMVCWebRequest.ClientPrefer(const AMediaType: string): Boolean;
 begin
-  Result := AnsiPos(AMediaType, LowerCase(RawWebRequest.Accept)) = 1;
+  Result := (RawWebRequest.Accept = '*/*') or (AnsiPos(AMediaType, LowerCase(RawWebRequest.Accept)) = 1);
 end;
 
 function TMVCWebRequest.ClientPreferHTML: Boolean;
 begin
   Result := ClientPrefer(TMVCMediaType.TEXT_HTML);
+end;
+
+function TMVCWebRequest.ClientPreferredLanguage: String;
+begin
+  Result := FWebRequest.GetFieldByName('Accept-Language');
+  if Result.Contains(',') then
+  begin
+    Result := Result.Split([','])[0];
+  end;
 end;
 
 function TMVCWebRequest.ContentParam(const AName: string): string;
@@ -1980,6 +2028,10 @@ begin
     try
       Flush;
     except
+      on E: EIdSocketError do
+      begin
+        LogW(Format('Client disconnected [CLASS: %s][MSG: %s]', [E.ClassName, E.Message]));
+      end;
       on E: Exception do
       begin
         LogException(E, '');
@@ -1998,6 +2050,11 @@ end;
 function TMVCWebResponse.GetContent: string;
 begin
   Result := FWebResponse.Content;
+end;
+
+function TMVCWebResponse.GetContentEncoding: string;
+begin
+  Result := FWebResponse.ContentEncoding;
 end;
 
 function TMVCWebResponse.GetContentType: string;
@@ -2035,16 +2092,20 @@ begin
   FWebResponse.Content := AValue;
 end;
 
+procedure TMVCWebResponse.SetContentEncoding(const Value: string);
+begin
+  FWebResponse.ContentEncoding := Value;
+end;
+
 procedure TMVCWebResponse.SetContentStream(const AStream: TStream; const AContentType: string);
 begin
-  ContentType := AContentType;
   FWebResponse.ContentStream := AStream;
+  ContentType := AContentType;
 end;
 
 procedure TMVCWebResponse.SetContentType(const AValue: string);
 begin
-  FWebResponse.ContentType := '';
-  FWebResponse.ContentType := AValue;
+  FWebResponse.ContentType := aValue;
 end;
 
 procedure TMVCWebResponse.SetCustomHeader(const AName, AValue: string);
@@ -2091,7 +2152,7 @@ begin
   inherited Destroy;
 end;
 
-function TUser.IsValid: Boolean;
+function TUser.GetIsValid: Boolean;
 begin
   Result := (not UserName.IsEmpty) and (LoggedSince > 0);
 end;
@@ -2103,7 +2164,9 @@ var
   I: Integer;
 begin
   if not Assigned(AWebSession) then
+  begin
     Exit(False);
+  end;
   SerObj := AWebSession[TMVCConstants.CURRENT_USER_SESSION_KEY];
   Result := not SerObj.IsEmpty;
   if Result then
@@ -2147,38 +2210,13 @@ end;
 
 { TWebContext }
 
-function TWebContext.AddSessionToTheSessionList(const ASessionType, ASessionId: string;
-  const ASessionTimeout: Integer): TMVCWebSession;
-var
-  Session: TMVCWebSession;
+function TWebContext.GetSessionFactory: TMVCWebSessionFactory;
 begin
-  if (Trim(ASessionType) = EmptyStr) then
-    raise EMVCException.Create('Empty Session Type');
-
-  TMonitor.Enter(GlobalSessionList);
-  try
-    Session := TMVCSessionFactory.GetInstance.CreateNewByType(ASessionType, ASessionId,
-      ASessionTimeout);
-    GlobalSessionList.Add(ASessionId, Session);
-    Result := Session;
-    Session.MarkAsUsed;
-  finally
-    TMonitor.Exit(GlobalSessionList);
-  end;
-end;
-
-procedure TWebContext.BindToSession(const ASessionId: string);
-begin
-  if not Assigned(FWebSession) then
+  if fSessionFactory = nil then
   begin
-    FWebSession := TMVCEngine.GetCurrentSession(ASessionId, False);
-    if not Assigned(FWebSession) then
-      raise EMVCException.Create('Invalid SessionID');
-    FWebSession.MarkAsUsed;
-    TMVCEngine.SendSessionCookie(Self, ASessionId);
-  end
-  else
-    raise EMVCException.Create('Session already bounded for this request');
+    raise EMVCConfigException.Create('Session middleware has not been set - session cannot be used without a proper session middleware');
+  end;
+  Result := fSessionFactory;
 end;
 
 constructor TWebContext.Create(const AServiceContainerResolver: IMVCServiceContainerResolver; const ARequest: TWebRequest; const AResponse: TWebResponse;
@@ -2253,6 +2291,15 @@ begin
   FResponse.Flush;
 end;
 
+procedure TWebContext.FreeSession;
+begin
+  if fWebSession <> nil then
+  begin
+    fWebSession.ApplyChanges;
+    FreeAndNil(fWebSession);
+  end;
+end;
+
 function TWebContext.GetData: TMVCStringDictionary;
 begin
   if fData = nil then
@@ -2314,8 +2361,19 @@ end;
 function TWebContext.GetLoggedUser: TUser;
 begin
   if not Assigned(FLoggedUser) then
-    FLoggedUser := TUser.Create;
+  begin
+    fLoggedUser := TUser.Create;
+    if SessionStarted then
+    begin
+      fLoggedUser.LoadFromSession(GetWebSession);
+    end;
+  end;
   Result := FLoggedUser;
+end;
+
+function TWebContext.GetLoggedUserExists: Boolean;
+begin
+  Result := fLoggedUser <> nil;
 end;
 
 function TWebContext.GetParamsTable: TMVCRequestParamsTable;
@@ -2325,53 +2383,59 @@ end;
 
 function TWebContext.GetWebSession: TMVCWebSession;
 var
-  lSessionIDFromRequest: string;
-  lSessionType: String;
+  lSessionID: string;
+  lSessionCookieMustBeSent: Boolean;
 begin
   if not Assigned(FWebSession) then
   begin
-    lSessionIDFromRequest := TMVCEngine.ExtractSessionIdFromWebRequest(FRequest.RawWebRequest);
-    FWebSession := TMVCEngine.GetCurrentSession(lSessionIDFromRequest, False);
-    if not Assigned(FWebSession) then
+    lSessionID := TMVCEngine.ExtractSessionIdFromWebRequest(FRequest.RawWebRequest, lSessionCookieMustBeSent);
+    if lSessionID.IsEmpty then
     begin
-      lSessionType := Config[TMVCConfigKey.SessionType];
-      if not TMVCSessionFactory.GetInstance.TryFindSessionID(lSessionType, lSessionIDFromRequest) then
-      begin
-        SessionStart(lSessionType);
-      end
-      else
-      begin
-        FWebSession := AddSessionToTheSessionList(
-          lSessionType,
-          lSessionIDFromRequest,
-          StrToInt(Config[TMVCConfigKey.SessionTimeout]));
-        TMVCEngine.SendSessionCookie(Self, FWebSession.SessionId);
-      end;
+      InternalSessionStart(fWebSession);
     end
     else
     begin
-      TMVCEngine.SendSessionCookie(Self, FWebSession.SessionId);
+      fWebSession := GetSessionFactory.CreateFromSessionID(lSessionID);
+      if fWebSession = nil then
+      begin
+        InternalSessionStart(fWebSession);
+      end
+      else
+      begin
+        if lSessionCookieMustBeSent then
+        begin
+          fWebSession.SendSessionCookie(Self.fResponse.RawWebResponse, fWebSession.SessionId);
+        end;
+      end;
     end;
   end;
-  Result := FWebSession;
+  Result := fWebSession;
   Result.MarkAsUsed;
+end;
+
+procedure TWebContext.InternalSessionStart(var Session: TMVCWebSession);
+begin
+  if not Assigned(Session) then
+  begin
+    Session := GetSessionFactory.CreateNewSession(GenerateSessionID);
+    FIsSessionStarted := True;
+    FSessionMustBeClose := False;
+    Session.SendSessionCookie(Self.fResponse.RawWebResponse, Session.SessionId);
+  end;
 end;
 
 function TWebContext.IsSessionStarted: Boolean;
 begin
-  Result := FIsSessionStarted;
-end;
-
-function TWebContext.SendSessionCookie(const AContext: TWebContext): string;
-begin
-  Result := TMVCEngine.SendSessionCookie(Self);
+  Result := fIsSessionStarted;
 end;
 
 function TWebContext.SessionId: string;
+var
+  lSessionCookieMustBeSent: Boolean;
 begin
   if Assigned(FWebSession) then
     Exit(FWebSession.SessionId);
-  Result := FRequest.Cookie(TMVCConstants.SESSION_TOKEN_NAME);
+  Result := TMVCEngine.ExtractSessionIdFromWebRequest(fRequest.RawWebRequest, lSessionCookieMustBeSent);
 end;
 
 function TWebContext.SessionMustBeClose: Boolean;
@@ -2379,18 +2443,9 @@ begin
   Result := FSessionMustBeClose;
 end;
 
-procedure TWebContext.SessionStart(const SessionType: String);
-var
-  ID: string;
+procedure TWebContext.SessionStart;
 begin
-  if not Assigned(FWebSession) then
-  begin
-    ID := TMVCEngine.SendSessionCookie(Self);
-    FWebSession := AddSessionToTheSessionList(SessionType, ID,
-      StrToInt64(Config[TMVCConfigKey.SessionTimeout]));
-    FIsSessionStarted := True;
-    FSessionMustBeClose := False;
-  end;
+  InternalSessionStart(fWebSession);
 end;
 
 function TWebContext.SessionStarted: Boolean;
@@ -2400,12 +2455,7 @@ begin
   SId := SessionId;
   if SId.IsEmpty then
     Exit(False);
-  TMonitor.Enter(GlobalSessionList);
-  try
-    Result := GlobalSessionList.ContainsKey(SId);
-  finally
-    TMonitor.Exit(GlobalSessionList);
-  end;
+  Result := GetSessionFactory.TryFindSessionID(SId);
 end;
 
 procedure TWebContext.SessionStop(const ARaiseExceptionIfExpired: Boolean);
@@ -2413,43 +2463,24 @@ var
   Cookie: TCookie;
   SId: string;
 begin
+
   FResponse.Cookies.Clear;
 
   Cookie := FResponse.Cookies.Add;
   Cookie.name := TMVCConstants.SESSION_TOKEN_NAME;
 
-  Cookie.Value := GUIDToString(TGUID.NewGuid) + 'invalid' + GUIDToString(TGUID.NewGuid);
-  Cookie.Expires := EncodeDate(1970, 1, 1);
+  Cookie.Value := '';
+  Cookie.Expires := EncodeDate(1979, 11, 4);
   Cookie.Path := '/';
 
-  TMonitor.Enter(GlobalSessionList);
-  try
-    SID := SessionId;
-    if (SId = '') and (ARaiseExceptionIfExpired) then
-    begin
-      raise EMVCSessionExpiredException.Create('Session not started');
-    end;
-
-    GlobalSessionList.Remove(SId);
-
-    if SId <> '' then
-    begin
-      FWebSession := nil;
-      try
-        TMVCSessionFactory.GetInstance.TryDeleteSessionID(Config[TMVCConfigKey.SessionType], SId);
-      except
-        on E: Exception do
-        begin
-          LogException(E, 'Cannot delete session file for sessionid: ' + SId);
-        end;
-      end;
-    end;
-  finally
-    TMonitor.Exit(GlobalSessionList);
+  SID := SessionId;
+  if (SId = '') and (ARaiseExceptionIfExpired) then
+  begin
+    raise EMVCSessionExpiredException.Create;
   end;
-
-  FIsSessionStarted := False;
-  FSessionMustBeClose := True;
+  GetSessionFactory.TryDeleteSessionID(SId);
+  fIsSessionStarted := False;
+  fSessionMustBeClose := True;
 end;
 
 procedure TWebContext.SetIntfObject(const Value: IInterface);
@@ -2460,6 +2491,15 @@ end;
 procedure TWebContext.SetParamsTable(const AValue: TMVCRequestParamsTable);
 begin
   FRequest.ParamsTable := AValue;
+end;
+
+procedure TWebContext.SetSessionFactory(const SessionFactory: TMVCWebSessionFactory);
+begin
+  if fSessionFactory <> nil then
+  begin
+    raise EMVCSession.Create('Session factory already set. Can be used only one session middleware at a time.');
+  end;
+  fSessionFactory := SessionFactory;
 end;
 
 { TMVCEngine }
@@ -2514,7 +2554,6 @@ procedure TMVCEngine.ConfigDefaultValues;
 begin
   LogI('Loading Config default values');
 
-  Config[TMVCConfigKey.SessionTimeout] := '30' { 30 minutes };
   Config[TMVCConfigKey.DefaultContentType] := TMVCConstants.DEFAULT_CONTENT_TYPE;
   Config[TMVCConfigKey.DefaultContentCharset] := TMVCConstants.DEFAULT_CONTENT_CHARSET;
   Config[TMVCConfigKey.DefaultViewFileExtension] := 'html';
@@ -2524,7 +2563,6 @@ begin
   Config[TMVCConfigKey.ServerName] := 'DelphiMVCFramework';
   Config[TMVCConfigKey.ExposeServerSignature] := 'true';
   Config[TMVCConfigKey.ExposeXPoweredBy] := 'true';
-  Config[TMVCConfigKey.SessionType] := 'memory';
   Config[TMVCConfigKey.MaxEntitiesRecordCount] := '20';
   Config[TMVCConfigKey.MaxRequestSize] := IntToStr(TMVCConstants.DEFAULT_MAX_REQUEST_SIZE);
   Config[TMVCConfigKey.HATEOSPropertyName] := '_links';
@@ -2532,23 +2570,29 @@ begin
 
   fOnRouterLog :=
       procedure(
-        const Sender: TMVCCustomRouter;
         const RouterLogState: TMVCRouterLogState;
         const Context: TWebContext)
+    var
+      lStatusCode: Word;
     begin
+      lStatusCode := Context.Response.StatusCode;
       case RouterLogState of
         rlsRouteFound:
           begin
-            LogI(Context.Request.HTTPMethodAsString + ':' +
-              Context.Request.PathInfo + ' [' + Context.Request.ClientIp + '] -> ' +
-              Sender.GetQualifiedActionName + ' - ' + IntToStr(Context.Response.StatusCode) + ' ' +
-              Context.Response.ReasonString);
+            if lStatusCode < HTTP_STATUS.InternalServerError then
+              LogI(Context.Request.HTTPMethodAsString + ':' +
+                Context.Request.PathInfo + ' [' + Context.Request.ClientIp + '] -> ' +
+                {Sender.GetQualifiedActionName + ' - ' +} IntToStr(lStatusCode))
+            else
+              LogE(Context.Request.HTTPMethodAsString + ':' +
+                Context.Request.PathInfo + ' [' + Context.Request.ClientIp + '] -> ' +
+                {Sender.GetQualifiedActionName + ' - ' +} IntToStr(lStatusCode))
           end;
         rlsRouteNotFound:
           begin
             LogW(Context.Request.HTTPMethodAsString + ':' +
               Context.Request.PathInfo + ' [' + Context.Request.ClientIp + '] -> {ROUTE NOT FOUND} - ' +
-              IntToStr(Context.Response.StatusCode) + ' ' + Context.Response.ReasonString);
+              IntToStr(Context.Response.StatusCode));
           end;
       else
         raise EMVCException.Create('Invalid RouterLogState');
@@ -2565,7 +2609,6 @@ begin
   FSerializers := TDictionary<string, IMVCSerializer>.Create;
   FMiddlewares := TList<IMVCMiddleware>.Create;
   FControllers := TObjectList<TMVCControllerDelegate>.Create(True);
-  FApplicationSession := nil;
   FSavedOnBeforeDispatch := nil;
   WebRequestHandler.CacheConnections := True;
   WebRequestHandler.MaxConnections := 4096;
@@ -2648,10 +2691,14 @@ begin
 end;
 
 function TMVCEngine.CustomExceptionHandling(const Ex: Exception;
-  const ASelectedController: TMVCController; const AContext: TWebContext): Boolean;
+  const aSelectedController: TMVCController; const AContext: TWebContext): Boolean;
 begin
   Result := False;
-  if Assigned(FOnException) then
+  if Assigned(aSelectedController) then
+  begin
+    aSelectedController.OnException(AContext, Ex, Result);
+  end;
+  if (not Result) and Assigned(FOnException) then
   begin
     FOnException(Ex, ASelectedController, AContext, Result);
   end;
@@ -2697,10 +2744,8 @@ function TMVCEngine.ExecuteAction(const ASender: TObject; const ARequest: TWebRe
 var
   lParamsTable: TMVCRequestParamsTable;
   lContext: TWebContext;
-  lRouter: TMVCRouter;
+//  lRouter: TMVCRouter;
   lHandled: Boolean;
-  lResponseContentMediaType: string;
-  lResponseContentCharset: string;
   lRouterMethodToCallName: string;
   lRouterControllerClazzQualifiedClassName: string;
   lSelectedController: TMVCController;
@@ -2710,6 +2755,7 @@ var
   lInvokeResult: TValue;
   lObjList: IMVCList;
   lRespStatus: Integer;
+  lRouterResult: TMVCRouterResult;
 begin
   Result := False;
 
@@ -2738,111 +2784,114 @@ begin
       DefineDefaultResponseHeaders(lContext);
       DoWebContextCreateEvent(lContext);
       lHandled := False;
-      lRouter := TMVCRouter.Create(FConfig, gMVCGlobalActionParamsCache);
-      try // finally
-        lSelectedController := nil;
-        try // only for lSelectedController
-          try // global exception handler
-            ExecuteBeforeRoutingMiddleware(lContext, lHandled);
-            if not lHandled then
+      lSelectedController := nil;
+      try // only for lSelectedController
+        try // global exception handler
+          ExecuteBeforeRoutingMiddleware(lContext, lHandled);
+          if not lHandled then
+          begin
+            if TMVCRouter.ExecuteRouting(
+              ARequest.RawPathInfo,
+              lContext.Request.GetOverwrittenHTTPMethod { lContext.Request.HTTPMethod } ,
+              ARequest.ContentType,
+              ARequest.Accept,
+              FControllers,
+              FConfigCache_DefaultContentType,
+              FConfigCache_DefaultContentCharset,
+              FConfigCache_PathPrefix,
+              lParamsTable,
+              lRouterResult) then
             begin
-              if lRouter.ExecuteRouting(ARequest.PathInfo,
-                lContext.Request.GetOverwrittenHTTPMethod { lContext.Request.HTTPMethod } ,
-                ARequest.ContentType, ARequest.Accept, FControllers,
-                FConfigCache_DefaultContentType, FConfigCache_DefaultContentCharset,
-                FConfigCache_PathPrefix, lParamsTable, lResponseContentMediaType,
-                lResponseContentCharset) then
+              try
+                if lRouterResult.ControllerCreateAction <> nil then
+                begin
+                  lSelectedController := lRouterResult.ControllerCreateAction();
+                end
+                else if lRouterResult.ControllerInjectableConstructor <> nil then
+                begin
+                  lSelectedController := CreateControllerWithDependencies(
+                    lContext,
+                    lRouterResult.ControllerClazz,
+                    lRouterResult.ControllerInjectableConstructor);
+                end
+                else
+                begin
+                  lSelectedController := lRouterResult.ControllerClazz.Create;
+                end;
+              except
+                on Ex: Exception do
+                begin
+                  Log.Error('[%s] %s [PathInfo "%s"] (Custom message: "%s")',
+                    [Ex.Classname, Ex.Message, GetRequestShortDescription(ARequest), 'Cannot create controller'], LOGGERPRO_TAG);
+                  raise EMVCException.Create(http_status.InternalServerError,
+                    'Cannot create controller (see log for more info)');
+                end;
+              end;
+              lRouterMethodToCallName := lRouterResult.MethodToCall.Name;
+              lRouterControllerClazzQualifiedClassName := lRouterResult.ControllerClazz.QualifiedClassName;
+
+              MVCFramework.Logger.InitThreadVars;
+
+              lContext.fActionQualifiedName := lRouterControllerClazzQualifiedClassName + '.'+ lRouterMethodToCallName;
+              lSelectedController.Engine := Self;
+              lSelectedController.Context := lContext;
+              lContext.ParamsTable := lParamsTable;
+              ExecuteBeforeControllerActionMiddleware(
+                lContext,
+                lRouterControllerClazzQualifiedClassName,
+                lRouterMethodToCallName,
+                lHandled);
+              if not lHandled then
               begin
+                lBodyParameter := nil;
+                lSelectedController.MVCControllerAfterCreate;
                 try
-                  if lRouter.ControllerCreateAction <> nil then
+                  lHandled := False;
+                  lSelectedController.ContentType := BuildContentType(lRouterResult.ResponseContentMediaType, lRouterResult.ResponseContentCharset);
+                  lActionFormalParams := lRouterResult.MethodToCall.GetParameters;
+                  if (Length(lActionFormalParams) = 0) then
+                    SetLength(lActualParams, 0)
+                  else if (Length(lActionFormalParams) = 1) and
+                    (SameText(lActionFormalParams[0].ParamType.QualifiedName,
+                    'MVCFramework.TWebContext')) then
                   begin
-                    lSelectedController := lRouter.ControllerCreateAction();
-                  end
-                  else if lRouter.ControllerInjectableConstructor <> nil then
-                  begin
-                    lSelectedController := CreateControllerWithDependencies(
-                      lContext,
-                      lRouter.ControllerClazz,
-                      lRouter.ControllerInjectableConstructor);
+                    SetLength(lActualParams, 1);
+                    lActualParams[0] := lContext;
                   end
                   else
                   begin
-                    lSelectedController := lRouter.ControllerClazz.Create;
+                    FillActualParamsForAction(lSelectedController, lContext, lActionFormalParams,
+                      lRouterMethodToCallName, lActualParams, lBodyParameter);
                   end;
-                except
-                  on Ex: Exception do
+                  lSelectedController.OnBeforeAction(lContext, lRouterMethodToCallName, lHandled);
+                  if not lHandled then
                   begin
-                    Log.ErrorFmt('[%s] %s [PathInfo "%s"] (Custom message: "%s")',
-                      [Ex.Classname, Ex.Message, GetRequestShortDescription(ARequest), 'Cannot create controller'], LOGGERPRO_TAG);
-                    raise EMVCException.Create(http_status.InternalServerError,
-                      'Cannot create controller (see log for more info)');
-                  end;
-                end;
-                lRouterMethodToCallName := lRouter.MethodToCall.Name;
-                lRouterControllerClazzQualifiedClassName := lRouter.ControllerClazz.QualifiedClassName;
-
-                MVCFramework.Logger.InitThreadVars;
-
-                lContext.fActionQualifiedName := lRouterControllerClazzQualifiedClassName + '.'+ lRouterMethodToCallName;
-                lSelectedController.Engine := Self;
-                lSelectedController.Context := lContext;
-                lSelectedController.ApplicationSession := FApplicationSession;
-                lContext.ParamsTable := lParamsTable;
-                ExecuteBeforeControllerActionMiddleware(
-                  lContext,
-                  lRouterControllerClazzQualifiedClassName,
-                  lRouterMethodToCallName,
-                  lHandled);
-                if not lHandled then
-                begin
-                  lBodyParameter := nil;
-                  lSelectedController.MVCControllerAfterCreate;
-                  try
-                    lHandled := False;
-                    lSelectedController.ContentType := BuildContentType(lResponseContentMediaType,
-                      lResponseContentCharset);
-                    lActionFormalParams := lRouter.MethodToCall.GetParameters;
-                    if (Length(lActionFormalParams) = 0) then
-                      SetLength(lActualParams, 0)
-                    else if (Length(lActionFormalParams) = 1) and
-                      (SameText(lActionFormalParams[0].ParamType.QualifiedName,
-                      'MVCFramework.TWebContext')) then
-                    begin
-                      SetLength(lActualParams, 1);
-                      lActualParams[0] := lContext;
-                    end
-                    else
-                    begin
-                      FillActualParamsForAction(lSelectedController, lContext, lActionFormalParams,
-                        lRouterMethodToCallName, lActualParams, lBodyParameter);
-                    end;
-                    lSelectedController.OnBeforeAction(lContext, lRouterMethodToCallName, lHandled);
-                    if not lHandled then
-                    begin
-                      try
-                        if lRouter.MethodToCall.MethodKind = mkProcedure then
-                        begin
-                          lRouter.MethodToCall.Invoke(lSelectedController, lActualParams);
-                        end
-                        else
-                        begin
-                          lInvokeResult := lRouter.MethodToCall.Invoke(lSelectedController, lActualParams);
-                          case lInvokeResult.Kind of
-                            tkInterface:
+                    try
+                      if lRouterResult.MethodToCall.MethodKind = mkProcedure then
+                      begin
+                        lRouterResult.MethodToCall.Invoke(lSelectedController, lActualParams);
+                      end
+                      else
+                      begin
+                        lInvokeResult := lRouterResult.MethodToCall.Invoke(lSelectedController, lActualParams);
+                        case lInvokeResult.Kind of
+                          tkInterface:
+                          begin
+                            if Supports(lInvokeResult.AsInterface, IMVCResponse) then
                             begin
-                              if Supports(lInvokeResult.AsInterface, IMVCResponse) then
-                              begin
-                                TMVCRenderer.InternalRenderMVCResponse(lSelectedController, TMVCResponse(lInvokeResult.AsInterface));
-                              end
-                              else
-                              begin
-                                lSelectedController.Render(lInvokeResult.AsInterface);
-                              end;
+                              TMVCRenderer.InternalRenderMVCResponse(lSelectedController, TMVCResponse(lInvokeResult.AsInterface));
+                            end
+                            else
+                            begin
+                              lSelectedController.Render(lInvokeResult.AsInterface);
                             end;
-                            tkClass:
-                            begin
-                              lResponseObject := lInvokeResult.AsObject;
-                              try
+                          end;
+                          tkClass:
+                          begin
+                            lResponseObject := lInvokeResult.AsObject;
+                            try
+                              if lResponseObject <> nil then
+                              begin
                                 // https://learn.microsoft.com/en-us/aspnet/core/web-api/action-return-types?view=aspnetcore-7.0
                                 if lResponseObject is TDataSet then
                                 begin
@@ -2868,228 +2917,194 @@ begin
                                 begin
                                   lSelectedController.Render(lResponseObject, False);
                                 end;
-                              finally
-                                lResponseObject.Free;
                               end
-                            end;
-                            tkRecord:
-                            begin
-                              lSelectedController.Render(
-                                lSelectedController.Serializer(lSelectedController.GetContentType)
-                                  .SerializeRecord(lInvokeResult.GetReferenceToRawData,
-                                  lInvokeResult.TypeInfo,
-                                  TMVCSerializationType.stFields,nil,nil));
-                            end;
-                            tkArray, tkDynArray:
-                            begin
-                              lSelectedController.Render(
-                                lSelectedController.Serializer(lSelectedController.GetContentType)
-                                  .SerializeArrayOfRecord(lInvokeResult,
-                                    TMVCSerializationType.stFields,nil,nil));
-                            end;
-                            tkUString, tkString:
-                            begin
-                              lSelectedController.Render(lInvokeResult.AsString);
-                            end;
-                            tkEnumeration:
-                            begin
-                              lSelectedController.Render(GetEnumName(lInvokeResult.TypeInfo, lInvokeResult.AsOrdinal));
-                            end;
-                            tkFloat:
-                            begin
-                              lSelectedController.Render(FloatToStr(lInvokeResult.AsExtended, GetDefaultFormatSettings));
-                            end;
-                            tkInteger:
-                            begin
-                              lSelectedController.Render(IntToStr(lInvokeResult.AsInteger));
-                            end;
-                            tkInt64:
-                            begin
-                              lSelectedController.Render(IntToStr(lInvokeResult.AsInt64));
+                              else
+                              begin
+                                lSelectedController.Render(TObject(nil));
+                              end;
+                            finally
+                              lResponseObject.Free;
                             end
-                            else
-                            begin
-                              RaiseSerializationError('Cannot serialize type ' + lInvokeResult.TypeInfo.Name);
-                            end;
+                          end;
+                          tkRecord:
+                          begin
+                            lSelectedController.Render(
+                              lSelectedController.Serializer(lSelectedController.GetContentType)
+                                .SerializeRecord(lInvokeResult.GetReferenceToRawData,
+                                lInvokeResult.TypeInfo,
+                                TMVCSerializationType.stFields,nil,nil));
+                          end;
+                          tkArray, tkDynArray:
+                          begin
+                            lSelectedController.Render(
+                              lSelectedController.Serializer(lSelectedController.GetContentType)
+                                .SerializeArrayOfRecord(lInvokeResult,
+                                  TMVCSerializationType.stFields,nil,nil));
+                          end;
+                          tkUString, tkString:
+                          begin
+                            lSelectedController.Render(lInvokeResult.AsString);
+                          end;
+                          tkEnumeration:
+                          begin
+                            lSelectedController.Render(GetEnumName(lInvokeResult.TypeInfo, lInvokeResult.AsOrdinal));
+                          end;
+                          tkFloat:
+                          begin
+                            lSelectedController.Render(FloatToStr(lInvokeResult.AsExtended, GetDefaultFormatSettings));
+                          end;
+                          tkInteger:
+                          begin
+                            lSelectedController.Render(IntToStr(lInvokeResult.AsInteger));
+                          end;
+                          tkInt64:
+                          begin
+                            lSelectedController.Render(IntToStr(lInvokeResult.AsInt64));
+                          end
+                          else
+                          begin
+                            RaiseSerializationError('Cannot serialize type ' + lInvokeResult.TypeInfo.Name);
                           end;
                         end;
-                      finally
-                        lSelectedController.OnAfterAction(lContext, lRouterMethodToCallName);
                       end;
+                    finally
+                      lSelectedController.fFreeList.Free;
+                      lSelectedController.OnAfterAction(lContext, lRouterMethodToCallName);
                     end;
-                  finally
-                    try
-                      lBodyParameter.Free;
-                    except
-                      on E: Exception do
-                      begin
-                        LogE(Format('Cannot free Body object: [CLS: %s][MSG: %s]',
-                          [E.Classname, E.Message]));
-                      end;
-                    end;
-                    lSelectedController.MVCControllerBeforeDestroy;
                   end;
-                  lContext.Response.ContentType := lSelectedController.ContentType;
-                  Result := True; //handled
-                end; //if not handled by OnBeforeControllerActionMiddleware
-                ExecuteAfterControllerActionMiddleware(lContext,
-                  lRouterControllerClazzQualifiedClassName,
-                  lRouterMethodToCallName,
-                  lHandled);
-                fOnRouterLog(lRouter, rlsRouteFound, lContext);
-              end
-              else // execute-routing
-              begin
-                if Config[TMVCConfigKey.AllowUnhandledAction] = 'false' then
-                begin
-                  lContext.Response.StatusCode := http_status.NotFound;
-                  lContext.Response.ReasonString := 'Not Found';
-                  SendHTTPStatus(lContext, HTTP_STATUS.NotFound);
-                  fOnRouterLog(lRouter, rlsRouteNotFound, lContext);
-                end
-                else
-                begin
-                  lContext.Response.FlushOnDestroy := False;
+                finally
+                  try
+                    lBodyParameter.Free;
+                  except
+                    on E: Exception do
+                    begin
+                      LogE(Format('Cannot free Body object: [CLS: %s][MSG: %s]',
+                        [E.Classname, E.Message]));
+                    end;
+                  end;
+                  lSelectedController.MVCControllerBeforeDestroy;
                 end;
-              end; // end-execute-routing
-            end; // if not handled by beforerouting
-          except
-            on ESess: EMVCSessionExpiredException do
+                lContext.Response.ContentType := lSelectedController.ContentType;
+                Result := True; //handled
+              end; //if not handled by OnBeforeControllerActionMiddleware
+              ExecuteAfterControllerActionMiddleware(lContext,
+                lRouterControllerClazzQualifiedClassName,
+                lRouterMethodToCallName,
+                lHandled);
+              fOnRouterLog(rlsRouteFound, lContext);
+            end
+            else // execute-routing
             begin
-              if not CustomExceptionHandling(ESess, lSelectedController, lContext) then
+              if Config[TMVCConfigKey.AllowUnhandledAction] = 'false' then
               begin
-                Log.ErrorFmt('[%s] %s [PathInfo "%s"] - %d %s (Custom message: "%s")',
-                  [
-                    ESess.Classname,
-                    ESess.Message,
-                    GetRequestShortDescription(ARequest),
-                    ESess.HTTPStatusCode,
-                    HTTP_STATUS.ReasonStringFor(ESess.HTTPStatusCode),
-                    ESess.DetailedMessage
-                  ], LOGGERPRO_TAG);
-                lContext.SessionStop;
-                lSelectedController.ResponseStatus(ESess.HTTPStatusCode);
-                lSelectedController.Render(ESess);
-              end;
-            end;
-            on E: EMVCException do
-            begin
-              if not CustomExceptionHandling(E, lSelectedController, lContext) then
-              begin
-                Log.ErrorFmt('[%s] %s [PathInfo "%s"] - %d %s (Custom message: "%s")',
-                  [
-                    E.Classname,
-                    E.Message,
-                    GetRequestShortDescription(ARequest),
-                    E.HTTPStatusCode,
-                    HTTP_STATUS.ReasonStringFor(E.HTTPStatusCode),
-                    E.DetailedMessage
-                  ], LOGGERPRO_TAG);
-                if Assigned(lSelectedController) then
-                begin
-                  lSelectedController.ResponseStatus(E.HTTPStatusCode);
-                  lSelectedController.Render(E);
-                end
-                else
-                begin
-                  SendHTTPStatus(lContext, E.HTTPStatusCode, E.Message, E.Classname);
-                end;
-              end;
-            end;
-            on EIO: EInvalidOp do
-            begin
-              if not CustomExceptionHandling(EIO, lSelectedController, lContext) then
-              begin
-                Log.ErrorFmt('[%s] %s [PathInfo "%s"] - %d %s (Custom message: "%s")',
-                  [
-                    EIO.Classname,
-                    EIO.Message,
-                    GetRequestShortDescription(ARequest),
-                    HTTP_STATUS.InternalServerError,
-                    HTTP_STATUS.ReasonStringFor(HTTP_STATUS.InternalServerError),
-                    'Invalid Op'], LOGGERPRO_TAG);
-                if Assigned(lSelectedController) then
-                begin
-                  lSelectedController.ResponseStatus(HTTP_STATUS.InternalServerError);
-                  lSelectedController.Render(EIO);
-                end
-                else
-                begin
-                  SendHTTPStatus(lContext, HTTP_STATUS.InternalServerError,
-                    Format('[%s] %s', [EIO.Classname, EIO.Message]), EIO.Classname);
-                end;
-              end;
-            end;
-            on Ex: Exception do
-            begin
-              if Ex is ESqidsException then
-              begin
-                lRespStatus := HTTP_STATUS.BadRequest;
+                lContext.Response.StatusCode := http_status.NotFound;
+                lContext.Response.ReasonString := 'Not Found';
+                SendHTTPStatus(lContext, HTTP_STATUS.NotFound);
+                fOnRouterLog(rlsRouteNotFound, lContext);
               end
               else
               begin
-                lRespStatus := HTTP_STATUS.InternalServerError;
+                lContext.Response.FlushOnDestroy := False;
               end;
-
-              if not CustomExceptionHandling(Ex, lSelectedController, lContext) then
-              begin
-                Log.ErrorFmt('[%s] %s [PathInfo "%s"] - %d %s (Custom message: "%s")',
-                  [
-                    Ex.Classname,
-                    Ex.Message,
-                    GetRequestShortDescription(ARequest),
-                    lRespStatus,
-                    HTTP_STATUS.ReasonStringFor(lRespStatus),
-                    'Global Action Exception Handler'
-                  ], LOGGERPRO_TAG);
-                if Assigned(lSelectedController) then
-                begin
-                  lSelectedController.ResponseStatus(lRespStatus);
-                  lSelectedController.Render(Ex);
-                end
-                else
-                begin
-                  SendHTTPStatus(lContext, lRespStatus,
-                    Format('[%s] %s', [Ex.Classname, Ex.Message]), Ex.Classname);
-                end;
-              end;
-            end;
-          end;
-          try
-            ExecuteAfterRoutingMiddleware(lContext, lHandled);
-          except
-            on Ex: Exception do
+            end; // end-execute-routing
+          end; // if not handled by beforerouting
+        except
+          on E: EMVCException do
+          begin
+            if E is EMVCSessionExpiredException then
             begin
-              if not CustomExceptionHandling(Ex, lSelectedController, lContext) then
+              lContext.SessionStop(False);
+            end;
+            if not CustomExceptionHandling(E, lSelectedController, lContext) then
+            begin
+              Log.Error('[%s] %s [PathInfo "%s"] - %d %s (Custom message: "%s")',
+                [
+                  E.Classname,
+                  E.Message,
+                  GetRequestShortDescription(ARequest),
+                  E.HTTPStatusCode,
+                  HTTP_STATUS.ReasonStringFor(E.HTTPStatusCode),
+                  E.DetailedMessage
+                ], LOGGERPRO_TAG);
+              if Assigned(lSelectedController) then
               begin
-                Log.ErrorFmt('[%s] %s [PathInfo "%s"] - %d %s (Custom message: "%s")',
-                  [
-                    Ex.Classname,
-                    Ex.Message,
-                    GetRequestShortDescription(ARequest),
-                    HTTP_STATUS.InternalServerError,
-                    HTTP_STATUS.ReasonStringFor(HTTP_STATUS.InternalServerError),
-                    'After Routing Exception Handler'
-                  ], LOGGERPRO_TAG);
-                if Assigned(lSelectedController) then
-                begin
-                  { middlewares *must* not raise unhandled exceptions }
-                  lSelectedController.ResponseStatus(HTTP_STATUS.InternalServerError);
-                  lSelectedController.Render(Ex);
-                end
-                else
-                begin
-                  SendHTTPStatus(lContext, http_status.InternalServerError,
-                    Format('[%s] %s', [Ex.Classname, Ex.Message]), Ex.Classname);
-                end;
+                lSelectedController.ResponseStatus(E.HTTPStatusCode);
+                lSelectedController.Render(E);
+              end
+              else
+              begin
+                SendHTTPStatus(lContext, E.HTTPStatusCode, E.Message, E.Classname);
               end;
             end;
           end;
-        finally
-          FreeAndNil(lSelectedController);
+          on Ex: Exception do
+          begin
+            if Ex is ESqidsException then
+            begin
+              lRespStatus := HTTP_STATUS.BadRequest;
+            end
+            else
+            begin
+              lRespStatus := HTTP_STATUS.InternalServerError;
+            end;
+
+            if not CustomExceptionHandling(Ex, lSelectedController, lContext) then
+            begin
+              Log.Error('[%s] %s [PathInfo "%s"] - %d %s (Custom message: "%s")',
+                [
+                  Ex.Classname,
+                  Ex.Message,
+                  GetRequestShortDescription(ARequest),
+                  lRespStatus,
+                  HTTP_STATUS.ReasonStringFor(lRespStatus),
+                  'Global Action Exception Handler'
+                ], LOGGERPRO_TAG);
+              if Assigned(lSelectedController) then
+              begin
+                lSelectedController.ResponseStatus(lRespStatus);
+                lSelectedController.Render(Ex);
+              end
+              else
+              begin
+                SendHTTPStatus(lContext, lRespStatus,
+                  Format('[%s] %s', [Ex.Classname, Ex.Message]), Ex.Classname);
+              end;
+            end;
+          end;
+        end;
+        try
+          lContext.FreeSession;
+          ExecuteAfterRoutingMiddleware(lContext, lHandled);
+        except
+          on Ex: Exception do
+          begin
+            if not CustomExceptionHandling(Ex, lSelectedController, lContext) then
+            begin
+              Log.Error('[%s] %s [PathInfo "%s"] - %d %s (Custom message: "%s")',
+                [
+                  Ex.Classname,
+                  Ex.Message,
+                  GetRequestShortDescription(ARequest),
+                  HTTP_STATUS.InternalServerError,
+                  HTTP_STATUS.ReasonStringFor(HTTP_STATUS.InternalServerError),
+                  'After Routing Exception Handler'
+                ], LOGGERPRO_TAG);
+              if Assigned(lSelectedController) then
+              begin
+                { middlewares *must* not raise unhandled exceptions }
+                lSelectedController.ResponseStatus(HTTP_STATUS.InternalServerError);
+                lSelectedController.Render(Ex);
+              end
+              else
+              begin
+                SendHTTPStatus(lContext, http_status.InternalServerError,
+                  Format('[%s] %s', [Ex.Classname, Ex.Message]), Ex.Classname);
+              end;
+            end;
+          end;
         end;
       finally
-        lRouter.Free;
+        FreeAndNil(lSelectedController);
       end;
     finally
       DoWebContextDestroyEvent(lContext);
@@ -3160,9 +3175,16 @@ begin
   end;
 end;
 
-class function TMVCEngine.ExtractSessionIdFromWebRequest(const AWebRequest: TWebRequest): string;
+class function TMVCEngine.ExtractSessionIdFromWebRequest(const AWebRequest: TWebRequest; out SessionCookieMustSent: Boolean): string;
 begin
+  SessionCookieMustSent := False;
   Result := AWebRequest.CookieFields.Values[TMVCConstants.SESSION_TOKEN_NAME];
+  if Result.IsEmpty then
+  begin
+    Result := AWebRequest.QueryFields.Values[TMVCConstants.SESSION_TOKEN_NAME];
+    //if session id arrived on URL and not on cookie, we need to resend the session cookie
+    SessionCookieMustSent := not Result.IsEmpty;
+  end;
   if not Result.IsEmpty then
     Result := TIdURI.URLDecode(Result);
 end;
@@ -3284,8 +3306,8 @@ begin
     if not AContext.Request.SegmentParam(lParamName, lStrValue) then
     begin
       raise EMVCException.CreateFmt(http_status.BadRequest,
-        'Invalid parameter %s for action %s (Hint: Here parameters names are case-sensitive)',
-        [lParamName, AActionName]);
+        'Invalid parameter "%s" for action "%s" (Hint: Here parameters names are case-sensitive)',
+        [lParamName, AContext.ActionQualifiedName]);
     end;
     AActualParams[I] := GetActualParam(AActionFormalParams[I], lStrValue);
   end;
@@ -3295,7 +3317,7 @@ begin
   begin
     raise EMVCException.CreateFmt(http_status.BadRequest,
       'Parameters count mismatch (expected %d actual %d) for action "%s"',
-      [Length(AActionFormalParams), AContext.Request.SegmentParamsCount, AActionName]);
+      [Length(AActionFormalParams), AContext.Request.SegmentParamsCount, AContext.ActionQualifiedName]);
   end;
 end;
 
@@ -3488,48 +3510,6 @@ begin
   end;
 end;
 
-class function TMVCEngine.GetCurrentSession(const ASessionId: string; const ARaiseExceptionIfExpired: Boolean): TMVCWebSession;
-var lSessionList: TObjectDictionary<string, TMVCWebSession>;
-begin
-  Result := nil;
-  lSessionList := GlobalSessionList;
-  TMonitor.Enter(lSessionList);
-  try
-    if not ASessionId.IsEmpty then
-    begin
-      if lSessionList.TryGetValue(ASessionId, Result) then
-      begin
-        { https://github.com/danieleteti/delphimvcframework/issues/355 }
-        if Result.IsExpired then
-        begin
-          lSessionList.Remove(ASessionId);
-          if ARaiseExceptionIfExpired then
-          begin
-            raise EMVCSessionExpiredException.Create('Session expired.')
-          end
-          else
-          begin
-            Result := nil;
-          end;
-        end
-        else
-        begin
-          Result.MarkAsUsed;
-        end;
-      end;
-    end;
-  finally
-    TMonitor.Exit(lSessionList);
-  end;
-end;
-
-function TMVCEngine.GetSessionBySessionId(const ASessionId: string): TMVCWebSession;
-begin
-  Result := TMVCEngine.GetCurrentSession(ASessionId, False);
-  if Assigned(Result) then
-    Result.MarkAsUsed;
-end;
-
 function TMVCEngine.GetViewEngineClass: TMVCViewEngineClass;
 begin
   if FViewEngineClass = nil then
@@ -3652,7 +3632,7 @@ begin
     except
       on E: Exception do
       begin
-        Log.ErrorFmt('[%s] %s', [E.Classname, E.Message], LOGGERPRO_TAG);
+        Log.Error('[%s] %s', [E.Classname, E.Message], LOGGERPRO_TAG);
 
         AResponse.StatusCode := http_status.InternalServerError; // default is Internal Server Error
         if E is EMVCException then
@@ -3722,6 +3702,11 @@ begin
   end;
 end;
 
+function TMVCEngine.RegisterRoute(const AURLSegment: string; const AControllerClazz: TMVCControllerClazz): TMVCEngine;
+begin
+  Result := AddController(AControllerClazz, AURLSegment);
+end;
+
 procedure TMVCEngine.ResponseErrorPage(const AException: Exception; const ARequest: TWebRequest;
 const AResponse: TWebResponse);
 begin
@@ -3737,18 +3722,6 @@ begin
   end;
 end;
 
-class function TMVCEngine.SendSessionCookie(const AContext: TWebContext): string;
-var
-  SId: string;
-begin
-  SId := StringReplace(StringReplace(StringReplace(
-    'DT' + GUIDToString(TGUID.NewGuid) + GUIDToString(TGUID.NewGuid),
-    '}', '', [rfReplaceAll]),
-    '{', '', [rfReplaceAll]),
-    '-', '', [rfReplaceAll]);
-  Result := SendSessionCookie(AContext, SId);
-end;
-
 procedure TMVCEngine.SaveCacheConfigValues;
 begin
   FConfigCache_MaxRequestSize := StrToInt64Def(Config[TMVCConfigKey.MaxRequestSize],
@@ -3759,27 +3732,29 @@ begin
   FConfigCache_DefaultContentType := Config[TMVCConfigKey.DefaultContentType];
   FConfigCache_DefaultContentCharset := Config[TMVCConfigKey.DefaultContentCharset];
   FConfigCache_PathPrefix := Config[TMVCConfigKey.PathPrefix];
+  FConfigCache_UseViewCache := Config[TMVCConfigKey.ViewCache] = 'true';
 end;
 
-class function TMVCEngine.SendSessionCookie(const AContext: TWebContext;
-const ASessionId: string): string;
-var Cookie: TCookie; SessionTimeout: Integer;
-begin
-  ClearSessionCookiesAlreadySet(AContext.Response.Cookies);
-  Cookie := AContext.Response.Cookies.Add;
-  Cookie.name := TMVCConstants.SESSION_TOKEN_NAME;
-  Cookie.Value := ASessionId;
-  if not TryStrToInt(AContext.Config[TMVCConfigKey.SessionTimeout], SessionTimeout) then
-    raise EMVCException.Create('[Config::Session Timeout] is not a valid integer');
-
-  if SessionTimeout = 0 then
-    Cookie.Expires := 0 // session cookie
-  else
-    Cookie.Expires := Now + OneMinute * SessionTimeout;
-
-  Cookie.Path := '/';
-  Result := ASessionId;
-end;
+//class function TMVCEngine.SendSessionCookie(const aContext: TWebContext; aHttpOnly: Boolean; const aSessionId: string): string;
+//var
+//  lCookie: TCookie;
+//  lSessionTimeout: Integer;
+//begin
+//  ClearSessionCookiesAlreadySet(AContext.Response.Cookies);
+//  lCookie := AContext.Response.Cookies.Add;
+//  lCookie.name := TMVCConstants.SESSION_TOKEN_NAME;
+//  lCookie.Value := aSessionId;
+//  lCookie.HttpOnly := aHttpOnly;
+//  lSessionTimeout := aContext.GetSessionFactory.GetTimeout;
+//
+//  if lSessionTimeout = 0 then
+//    lCookie.Expires := 0 // session cookie
+//  else
+//    lCookie.Expires := Now + OneMinute * lSessionTimeout;
+//
+//  lCookie.Path := '/';
+//  Result := ASessionId;
+//end;
 
 function TMVCEngine.Serializer(const AContentType: string; const ARaiseExceptionIfNotExists: Boolean): IMVCSerializer;
 var
@@ -3821,34 +3796,13 @@ end;
 { TMVCBase }
 
 class function TMVCBase.GetApplicationFileName: string;
-// var
-// Name: PChar;
-// Size: Integer;
 begin
   Result := GetModuleName(HInstance);
-  // Result := EmptyStr;
-  // Name := GetMemory(2048);
-  // try
-  // GetModuleName()
-  // Size := GetModuleFileName(0, Name, 2048);
-  // if Size > 0 then
-  // Result := Name;
-  // finally
-  // FreeMem(Name, 2048);
-  // end;
 end;
 
 class function TMVCBase.GetApplicationFileNamePath: string;
 begin
   Result := IncludeTrailingPathDelimiter(ExtractFilePath(GetApplicationFileName));
-end;
-
-function TMVCBase.GetApplicationSession: TWebApplicationSession;
-begin
-  if not Assigned(FApplicationSession) then
-    raise EMVCException.CreateFmt('ApplicationSession not assigned to this %s instance.',
-      [Classname]);
-  Result := FApplicationSession;
 end;
 
 function TMVCBase.GetConfig: TMVCConfig;
@@ -3861,11 +3815,6 @@ begin
   if not Assigned(FEngine) then
     raise EMVCException.CreateFmt('MVCEngine not assigned to this %s instance.', [Classname]);
   Result := FEngine;
-end;
-
-procedure TMVCBase.SetApplicationSession(const AValue: TWebApplicationSession);
-begin
-  FApplicationSession := AValue;
 end;
 
 procedure TMVCBase.SetEngine(const AValue: TMVCEngine);
@@ -4010,13 +3959,8 @@ begin
       'Hint: Messaging extensions require a valid clientid. Did you call /messages/clients/YOUR_CLIENT_ID ?');
 end;
 
-function TMVCRenderer.BadRequestResponse: IMVCResponse;
-begin
-  Result := StatusCodeResponse(HTTP_STATUS.BadRequest, nil);
-end;
-
 function TMVCRenderer.AcceptedResponse(const Location: string;
-  const Body: TObject): IMVCResponse;
+  const Body: TObject; const Message: String): IMVCResponse;
 var
   lRespBuilder: IMVCResponseBuilder;
 begin
@@ -4029,22 +3973,51 @@ begin
   begin
     lRespBuilder.Body(Body, True);
   end;
+  if not Message.IsEmpty then
+  begin
+    lRespBuilder.Body(Message);
+  end;
   Result := lRespBuilder.StatusCode(HTTP_STATUS.Accepted).Build;
+end;
+
+function TMVCRenderer.BadRequestResponse: IMVCResponse;
+begin
+  Result := InternalStatusCodeResponse(HTTP_STATUS.BadRequest, nil);
 end;
 
 function TMVCRenderer.BadRequestResponse(const Error: TObject): IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.BadRequest, Error);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.BadRequest, Error);
 end;
 
 function TMVCRenderer.BadRequestResponse(const Message: String): IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.BadRequest, nil, Message);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.BadRequest, nil, Message);
+end;
+
+function TMVCRenderer.UnprocessableContentResponse: IMVCResponse;
+begin
+  Result := InternalStatusCodeResponse(HTTP_STATUS.UnprocessableEntity, nil);
+end;
+
+function TMVCRenderer.UnprocessableContentResponse(const Error: TObject): IMVCResponse;
+begin
+  Result := InternalStatusCodeResponse(HTTP_STATUS.UnprocessableEntity, Error);
+end;
+
+function TMVCRenderer.UnauthorizedResponse(const Message: String): IMVCResponse;
+begin
+  Result := InternalStatusCodeResponse(HTTP_STATUS.Unauthorized, nil, Message);
+end;
+
+function TMVCRenderer.UnprocessableContentResponse(const Message: String): IMVCResponse;
+begin
+  Result := InternalStatusCodeResponse(HTTP_STATUS.UnprocessableEntity, nil, Message);
 end;
 
 function TMVCRenderer.ConflictResponse: IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.Conflict, nil);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.Conflict, nil);
 end;
 
 constructor TMVCRenderer.Create;
@@ -4052,6 +4025,7 @@ begin
   inherited;
   FContext := nil;
   FContentCharset := TMVCConstants.DEFAULT_CONTENT_CHARSET;
+  FContentMediaType := TMVCConstants.DEFAULT_CONTENT_TYPE;
   FResponseStream := nil;
 end;
 
@@ -4074,8 +4048,13 @@ begin
   inherited;
 end;
 
+function TMVCRenderer.ForbiddenResponse(const Message: String): IMVCResponse;
+begin
+  Result := InternalStatusCodeResponse(HTTP_STATUS.Forbidden, nil, Message);
+end;
+
 function TMVCRenderer.CreatedResponse(const Location: string;
-  const Body: TObject): IMVCResponse;
+  const Body: TObject; const AOwns: Boolean): IMVCResponse;
 var
   lRespBuilder: IMVCResponseBuilder;
 begin
@@ -4086,7 +4065,7 @@ begin
   end;
   if Assigned(Body) then
   begin
-    lRespBuilder.Body(Body, True);
+    lRespBuilder.Body(Body, AOwns);
   end;
   Result := lRespBuilder.StatusCode(HTTP_STATUS.Created).Build;
 end;
@@ -4094,30 +4073,12 @@ end;
 function TMVCRenderer.GetContentType: string;
 begin
   Result := GetContext.Response.ContentType;
-  if Result.IsEmpty or FContentCharset.IsEmpty then
-  begin
-    Result := FContext.FConfig[MVCFramework.Commons.TMVCConfigKey.DefaultContentType];
-    GetContext.Response.ContentType := Result;
-    SplitContentMediaTypeAndCharset(Result, FContentMediaType, FContentCharset); //update FContentMediaType, FContentCharset
-
-//    lRebuildContentType := False;
-//    SplitContentMediaTypeAndCharset(Result, FContentMediaType, FContentCharset);
-//    if FContentCharset.IsEmpty then
-//    begin
-//      lRebuildContentType := True;
-//      FContentCharset := TMVCConstants.DEFAULT_CONTENT_CHARSET;
-//    end;
-//    if FContentMediaType.IsEmpty then
-//    begin
-//      lRebuildContentType := True;
-//      FContentMediaType := TMVCConstants.DEFAULT_CONTENT_TYPE;
-//    end;
-//    if lRebuildContentType then
-//    begin
-//      Result := BuildContentType(FContentMediaType, FContentCharset);
-//      GetContext.Response.ContentType := Result;
-//    end;
-  end;
+//  if Result.IsEmpty then
+//  begin
+//    Result := FContext.FConfig[MVCFramework.Commons.TMVCConfigKey.DefaultContentType];
+//    GetContext.Response.ContentType := Result;
+//    SplitContentMediaTypeAndCharset(Result, FContentMediaType, FContentCharset); //update FContentMediaType, FContentCharset
+//  end;
 end;
 
 function TMVCRenderer.GetContext: TWebContext;
@@ -4137,6 +4098,26 @@ begin
   Result := GetSHA1HashFromString(Data);
 end;
 
+procedure TMVCController.InternalToFree(aObject: TObject);
+begin
+  if not Assigned(fFreeList) then
+  begin
+    fFreeList := TObjectList<TObject>.Create(True);
+  end;
+  fFreeList.Add(aObject);
+end;
+
+procedure TMVCController.ToFree(aObject: TObject);
+begin
+  InternalToFree(aObject);
+end;
+
+function TMVCController.ToFree<T>(aObject: T): T;
+begin
+  InternalToFree(aObject);
+  Result := aObject;
+end;
+
 function TMVCController.GetIfMatch: String;
 begin
   Result := Context.Request.GetHeader('If-Match');
@@ -4147,14 +4128,15 @@ begin
   Result := Context.Request.GetHeader('If-None-Match');
 end;
 
-function TMVCController.GetRenderedView(const AViewNames: TArray<string>; const JSONModel: TJSONObject): string;
+function TMVCController.GetRenderedView(const AViewNames: TArray<string>; const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback): string;
 var
   lView: TMVCBaseViewEngine; lViewName: string; lStrStream: TStringBuilder;
 begin
   lStrStream := TStringBuilder.Create;
   try
-    lView := FEngine.ViewEngineClass.Create(Engine, Context, FViewModel, JSONModel, ContentType);
+    lView := FEngine.ViewEngineClass.Create(Engine, Context, Self, FViewModel, ContentType);
     try
+      lView.FBeforeRenderCallback := OnBeforeRenderCallback;
       for lViewName in AViewNames do
       begin
         lView.Execute(lViewName, lStrStream);
@@ -4237,59 +4219,82 @@ end;
 
 function TMVCRenderer.InternalServerErrorResponse: IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.InternalServerError, nil);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.InternalServerError, nil);
 end;
 
 
 function TMVCRenderer.InternalServerErrorResponse(const Error: TObject): IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.InternalServerError, Error);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.InternalServerError, Error);
 end;
 
 function TMVCRenderer.InternalServerErrorResponse(const Message: String): IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.InternalServerError, nil, Message);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.InternalServerError, nil, Message);
 end;
 
 
 function TMVCRenderer.NoContentResponse: IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.NoContent, nil);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.NoContent, nil);
 end;
 
 function TMVCRenderer.NotFoundResponse: IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.NotFound, nil);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.NotFound, nil);
 end;
 
 function TMVCRenderer.NotFoundResponse(const Body: TObject): IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.NotFound, Body);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.NotFound, Body);
 end;
 
 function TMVCRenderer.NotFoundResponse(const Message: String): IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.NotFound, nil, Message);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.NotFound, nil, Message);
 end;
 
 function TMVCRenderer.NotModifiedResponse: IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.NotModified, nil);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.NotModified, nil);
 end;
 
 function TMVCRenderer.OKResponse: IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.OK, nil);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.OK, nil);
 end;
 
 function TMVCRenderer.OKResponse(const Message: String): IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.OK, nil, Message);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.OK, nil, Message);
 end;
 
 function TMVCRenderer.OKResponse(const Body: TObject): IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.OK, Body);
+  Result := InternalStatusCodeResponse(HTTP_STATUS.OK, Body);
+end;
+
+function TMVCRenderer.OKResponse(const Body: IMVCObjectDictionary): IMVCResponse;
+begin
+  Result := MVCResponseBuilder
+    .StatusCode(HTTP_STATUS.OK)
+    .Body(Body)
+    .Build;
+end;
+
+function TMVCRenderer.StatusResponse(const StatusCode: Word): IMVCResponse;
+begin
+  Result := InternalStatusCodeResponse(StatusCode, nil);
+end;
+
+function TMVCRenderer.StatusResponse(const StatusCode: Word; const Message: String): IMVCResponse;
+begin
+  Result := InternalStatusCodeResponse(StatusCode, nil, Message);
+end;
+
+function TMVCRenderer.StatusResponse(const StatusCode: Word; const Body: TObject): IMVCResponse;
+begin
+  Result := InternalStatusCodeResponse(StatusCode, Body);
 end;
 
 function TMVCController.GetViewData(const aModelName: string): TValue;
@@ -4303,20 +4308,6 @@ begin
   if not Assigned(FViewModel) then
     FViewModel := TMVCViewDataObject.Create;
   Result := FViewModel;
-end;
-
-function TMVCController.LoadView(const AViewNames: TArray<string>; const JSONModel: TJSONObject = nil): string;
-begin
-  try
-    Result := GetRenderedView(AViewNames, JSONModel);
-    ResponseStream.Append(Result);
-  except
-    on E: Exception do
-    begin
-      Log.ErrorFmt('[%s] %s', [E.Classname, E.Message], LOGGERPRO_TAG);
-      raise;
-    end;
-  end;
 end;
 
 procedure TMVCController.MVCControllerAfterCreate;
@@ -4339,36 +4330,25 @@ var AHandled: Boolean);
 begin
   AHandled := False;
   if ContentType.IsEmpty then
-    ContentType := Config[TMVCConfigKey.DefaultContentType];
+  begin
+    ContentType := BuildContentType(Config[TMVCConfigKey.DefaultContentType], Config[TMVCConfigKey.DefaultContentCharset]);
+  end;
   { Implement if need be. }
 end;
 
-function TMVCController.Page(const AViewNames: TArray<string>;
-  const JSONModel: TJSONObject; const UseCommonHeadersAndFooters: Boolean): string;
+procedure TMVCController.OnException(const aContext: TWebContext; const aException: Exception; var aHandled: Boolean);
 begin
-  if UseCommonHeadersAndFooters then
-    Result := GetRenderedView(fPageHeaders + AViewNames + fPageFooters, JSONModel)
-  else
-    Result := GetRenderedView(AViewNames, JSONModel)
+  //do nothing
 end;
 
-function TMVCController.PageFragment(const AViewNames: TArray<string>;
-  const JSONModel: TJSONObject): string;
+function TMVCController.Page(const AViewName: string; const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback): string;
 begin
-  Result := Page(AViewNames, JSONModel, False);
+  Result := RenderView(AViewName, OnBeforeRenderCallback);
 end;
 
-function TMVCController.PageFragment(const AViewNames: TArray<string>): string;
+function TMVCController.Page(const AViewNames: TArray<string>; const UseCommonHeadersAndFooters: Boolean; const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback): string;
 begin
-  Result := Page(AViewNames, nil, False);
-end;
-
-function TMVCController.Page(const AViewNames: TArray<string>; const UseCommonHeadersAndFooters: Boolean): string;
-begin
-  if UseCommonHeadersAndFooters then
-    Result := GetRenderedView(fPageHeaders + AViewNames + fPageFooters)
-  else
-    Result := GetRenderedView(AViewNames);
+  Result := RenderViews(AViewNames, UseCommonHeadersAndFooters, OnBeforeRenderCallback);
 end;
 
 procedure TMVCController.PushObjectToView(const aModelName: string; const AModel: TObject);
@@ -4378,7 +4358,31 @@ end;
 
 procedure TMVCController.RaiseSessionExpired;
 begin
-  raise EMVCSessionExpiredException.Create('Session expired.');
+  raise EMVCSessionExpiredException.Create;
+end;
+
+function TMVCController.RenderView(const AViewName: string;
+  const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback): string;
+begin
+  Result := GetRenderedView([AViewName], OnBeforeRenderCallback);
+end;
+
+function TMVCController.RenderView(const AViewName: string; const UseCommonHeadersAndFooters: Boolean;
+  const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback): string;
+begin
+  if UseCommonHeadersAndFooters then
+    Result := GetRenderedView(fPageHeaders + [AViewName] + fPageFooters, OnBeforeRenderCallback)
+  else
+    Result := GetRenderedView([AViewName], OnBeforeRenderCallback);
+end;
+
+function TMVCController.RenderViews(const AViewNames: TArray<string>; const UseCommonHeadersAndFooters: Boolean;
+  const OnBeforeRenderCallback: TMVCSSVBeforeRenderCallback): string;
+begin
+  if UseCommonHeadersAndFooters then
+    Result := GetRenderedView(fPageHeaders + AViewNames + fPageFooters, OnBeforeRenderCallback)
+  else
+    Result := GetRenderedView(AViewNames, OnBeforeRenderCallback);
 end;
 
 procedure TMVCRenderer.Redirect(const AUrl: string);
@@ -4408,37 +4412,35 @@ end;
 
 procedure TMVCRenderer.Render(const AContent: string);
 var
-//  lContentType: string;
   lOutEncoding: TEncoding;
-//  lCharset: string;
+  lWebResponse: TMVCWebResponse;
 begin
-//  SplitContentMediaTypeAndCharset(GetContentType, lContentType, lCharset);
-//  if lCharset.IsEmpty then
-//    lCharset := TMVCConstants.DEFAULT_CONTENT_CHARSET;
-//  if lContentType.IsEmpty then
-//    lContentType := TMVCConstants.DEFAULT_CONTENT_TYPE;
-//  lContentType := BuildContentType(lContentType, lCharset);
+  lWebResponse := GetContext.Response;
 
-  if SameText('UTF-8', FContentCharset) then
+  if SameText(TMVCCharSet.UTF_8, FContentCharset) or SameText(TMVCCharSet.UTF_8_WITHOUT_DASH, FContentCharset) then
   begin
-    GetContext
-      .Response
-      .SetContentStream(TStringStream.Create(AContent, gEncodingUTF8, False), GetContentType)
+    lWebResponse.SetContentStream(TStringStream.Create(AContent, gEncodingUTF8, False), GetContentType);
   end
   else
   begin
-    lOutEncoding := TEncoding.GetEncoding(FContentCharset);
-    try
-      GetContext
-        .Response
-        .SetContentStream(
-          TBytesStream.Create(
-            TEncoding.Convert(
-              TEncoding.Default,
-              lOutEncoding,
-              TEncoding.Default.GetBytes(AContent))), GetContentType);
-    finally
-      lOutEncoding.Free;
+    if FContentCharset.IsEmpty then
+    begin
+      lWebResponse.SetContentStream(TStringStream.Create(AContent, TEncoding.Default, False), GetContentType);
+    end
+    else
+    begin
+      lOutEncoding := TEncoding.GetEncoding(FContentCharset);
+      try
+        lWebResponse
+          .SetContentStream(
+            TBytesStream.Create(
+              TEncoding.Convert(
+                TEncoding.Default,
+                lOutEncoding,
+                TEncoding.Default.GetBytes(AContent))), GetContentType);
+      finally
+        lOutEncoding.Free;
+      end;
     end;
   end;
 end;
@@ -4539,7 +4541,7 @@ begin
   end;
 
   GetContext.Response.RawWebResponse.Content := EmptyStr;
-  GetContext.Response.RawWebResponse.ContentType := GetContentType;
+//  GetContext.Response.RawWebResponse.ContentType := GetContentType;
   GetContext.Response.RawWebResponse.ContentStream := lTemp;
   GetContext.Response.RawWebResponse.FreeContentStream := True;
 end;
@@ -4557,8 +4559,14 @@ begin
 end;
 
 procedure TMVCRenderer.SetContentType(const AValue: string);
+var
+  lContentType, lContentMediaType, lContentCharset: String;
 begin
-  GetContext.Response.ContentType := AValue.Trim;
+  lContentType := AValue.Trim;
+  GetContext.Response.ContentType := lContentType;
+  SplitContentMediaTypeAndCharset(lContentType, lContentMediaType, lContentCharset);
+  FContentCharset := lContentCharset;
+  FContentMediaType := lContentMediaType;
 end;
 
 procedure TMVCRenderer.SetContext(const Context: TWebContext);
@@ -4571,7 +4579,7 @@ begin
   GetContext.Response.StatusCode := AValue;
 end;
 
-function TMVCRenderer.StatusCodeResponse(const StatusCode: Word; const Body: TObject; const Message: String = ''): IMVCResponse;
+function TMVCRenderer.InternalStatusCodeResponse(const StatusCode: Word; const Body: TObject; const Message: String = ''): IMVCResponse;
 begin
   if Body = nil then
   begin
@@ -4600,7 +4608,12 @@ end;
 
 function TMVCRenderer.UnauthorizedResponse: IMVCResponse;
 begin
-  Result := StatusCodeResponse(HTTP_STATUS.Unauthorized, nil);
+  Result := UnauthorizedResponse('');
+end;
+
+function TMVCRenderer.ForbiddenResponse: IMVCResponse;
+begin
+  Result := ForbiddenResponse('');
 end;
 
 procedure TMVCController.SetETag(const Data: String; const NeedsToBeHashed: Boolean);
@@ -4623,7 +4636,7 @@ end;
 
 procedure TMVCController.SetViewData(const aModelName: string; const Value: TValue);
 begin
-  GetViewModel.Add(aModelName, Value);
+  GetViewModel.AddOrSetValue(aModelName, Value);
 end;
 
 procedure TMVCRenderer.Render(
@@ -4789,30 +4802,6 @@ begin
   Render<T>(ACollection, AOwns, ASerializationAction);
 end;
 
-function TMVCController.GetRenderedView(const AViewNames: TArray<string>): string;
-var
-  lView: TMVCBaseViewEngine; lViewName: string; lStrStream: TStringBuilder;
-begin
-  lStrStream := TStringBuilder.Create;
-  try
-    lView := FEngine.ViewEngineClass.Create(
-      Engine, Context,
-      FViewModel,
-      ContentType);
-    try
-      for lViewName in AViewNames do
-      begin
-        lView.Execute(lViewName, lStrStream);
-      end;
-    finally
-      lView.Free;
-    end;
-    Result := lStrStream.ToString;
-  finally
-    lStrStream.Free;
-  end;
-end;
-
 procedure TMVCRenderer.Render<T>(const ACollection: TObjectList<T>;
 const ASerializationAction: TMVCSerializationAction<T>);
 begin
@@ -4921,6 +4910,8 @@ begin
         end;
       end;
 
+
+      //We try to honor the client ACCEPT for exception as well...
       if Serializer(FContext.Request.BestAccept, False) <> nil then
         GetContext.Response.ContentType := FContext.Request.BestAccept
       else
@@ -4993,6 +4984,7 @@ begin
   inherited Create;
   fOwnsData := True;
   fData := nil;
+  fHeaders := nil;
   fMessage := '';
   fObjectDictionary := nil;
 end;
@@ -5013,6 +5005,7 @@ end;
 
 destructor TMVCResponse.Destroy;
 begin
+  fHeaders.Free;
   if FOwnsData then
   begin
     fData.Free;
@@ -5176,26 +5169,20 @@ end;
 constructor TMVCBaseViewEngine.Create(
       const AEngine: TMVCEngine;
       const AWebContext: TWebContext;
+      const AController: TMVCController;
       const AViewModel: TMVCViewDataObject;
       const AContentType: string);
 begin
   inherited Create;
   Engine := AEngine;
   FWebContext := AWebContext;
+  FController := AController;
   FViewModel := AViewModel;
   FContentType := AContentType;
   FOutput := EmptyStr;
-end;
-
-constructor TMVCBaseViewEngine.Create(
-  const AEngine: TMVCEngine;
-  const AWebContext: TWebContext;
-  const AViewModel: TMVCViewDataObject;
-  const AJSONModel: TJSONObject;
-  const AContentType: string);
-begin
-  Create(AEngine, AWebContext, AViewModel, AContentType);
-  fJSONModel := AJSONModel;
+  FUseViewCache := Engine.fConfigCache_UseViewCache;
+  FViewPath :=  Engine.Config[TMVCConfigKey.ViewPath];
+  FDefaultViewFileExtension := WebContext.Config[TMVCConfigKey.DefaultViewFileExtension];
 end;
 
 destructor TMVCBaseViewEngine.Destroy;
@@ -5203,34 +5190,36 @@ begin
   inherited Destroy;
 end;
 
-function TMVCBaseViewEngine.GetRealFileName(const AViewName: string): string;
+function TMVCBaseViewEngine.GetRealFileName(const AViewName: string; out ActualCalculatedFileName: String): string;
 var
   lFileName: string;
   lDefaultViewFileExtension: string;
+  lTemplateFolder: string;
 begin
   lDefaultViewFileExtension := Config[TMVCConfigKey.DefaultViewFileExtension];
-  lFileName := StringReplace(AViewName, '/', '\', [rfReplaceAll]);
+  lFileName := StringReplace(AViewName, '/', PathDelim, [rfReplaceAll]);
 
-  if (lFileName = '\') then
+  if (lFileName = PathDelim) then
   begin
-    lFileName := '\index.' + lDefaultViewFileExtension
+    lFileName := PathDelim + 'index.' + lDefaultViewFileExtension
   end
   else
   begin
     lFileName := lFileName + '.' + lDefaultViewFileExtension;
   end;
 
-  if DirectoryExists(Config[TMVCConfigKey.ViewPath]) then
+  lTemplateFolder := Config[TMVCConfigKey.ViewPath];
+  if DirectoryExists(lTemplateFolder) then
   begin
-    lFileName := ExpandFileName(IncludeTrailingPathDelimiter(Config.Value[TMVCConfigKey.ViewPath]) +
-      lFileName)
+    lFileName := ExpandFileName(IncludeTrailingPathDelimiter(lTemplateFolder) + lFileName)
   end
   else
   begin
-    lFileName := ExpandFileName(IncludeTrailingPathDelimiter(GetApplicationFileNamePath +
-      Config.Value[TMVCConfigKey.ViewPath]) + lFileName);
+    lFileName := ExpandFileName(IncludeTrailingPathDelimiter(
+      GetApplicationFileNamePath + lTemplateFolder) + lFileName);
   end;
 
+  ActualCalculatedFileName := lFileName;
   if FileExists(lFileName) then
     Result := lFileName
   else
@@ -5400,14 +5389,11 @@ TRttiContext.KeepContext;
 
 gIsShuttingDown := False;
 
-gMVCGlobalActionParamsCache := TMVCStringObjectDictionary<TMVCActionParamCacheItem>.Create;
 gEncodingUTF8 := TEncoding.GetEncoding(TMVCCharSet.UTF_8);
 
 finalization
 
 FreeAndNil(gEncodingUTF8);
-FreeAndNil(gMVCGlobalActionParamsCache);
-
 
 // https://quality.embarcadero.com/browse/RSP-38281
 TRttiContext.DropContext;

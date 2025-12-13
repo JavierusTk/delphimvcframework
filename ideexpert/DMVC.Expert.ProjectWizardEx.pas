@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -83,7 +83,7 @@ class procedure TDMVCNewProjectWizard.RegisterDMVCProjectWizard(const APersonali
 begin
   RegisterPackageWizard(TExpertsRepositoryProjectWizardWithProc.Create(APersonality, sNewDMVCProjectHint, sNewDMVCProjectCaption,
     'DMVC.Wizard.NewProjectWizard', // do not localize
-    'DMVCFramework', 'DMVCFramework Team - https://github.com/danieleteti/delphimvcframework', // do not localize
+    'DelphiMVCFramework', 'DelphiMVCFramework Team - https://github.com/danieleteti/delphimvcframework', // do not localize
     procedure
     var
       WizardForm: TfrmDMVCNewProject;
@@ -91,23 +91,29 @@ begin
       Project: IOTAProject;
       Config: IOTABuildConfiguration;
       ControllerUnit: IOTAModule;
+      WebSocketServerUnit: IOTAModule;
       JSONRPCUnit: IOTAModule;
       ServicesUnit: IOTAModule;
       WebModuleUnit: IOTAModule;
       MustacheHelperUnit: IOTAModule;
+      TemplateProHelperUnit: IOTAModule;
       ControllerCreator: IOTACreator;
+      WebSocketServerCreator: IOTACreator;
       EntityCreator: IOTACreator;
       JSONRPCUnitCreator: IOTACreator;
       ServicesUnitCreator: IOTACreator;
-      MustacheHelpersUnitCreator: IOTACreator;
+      HelpersUnitCreator: IOTACreator;
       WebModuleCreator: IOTAModuleCreator;
       lProjectSourceCreator: IOTACreator;
       lJSONRPCUnitName: string;
       lServicesUnitName: string;
       lJSON: TJSONObject;
       lMustacheHelpersUnitName: string;
+      lTemplateProHelpersUnitName: string;
       lEntityUnitName: string;
       EntityUnit: IOTAModule;
+    lWebStencilsHelpersUnitName: string;
+    WebStencilsHelperUnit: IOTAModule;
     begin
       WizardForm := TfrmDMVCNewProject.Create(Application);
       try
@@ -132,7 +138,7 @@ begin
 
           lEntityUnitName := '';
           // Create ENTITY Unit
-          if lJSON.B[TConfigKey.controller_crud_methods_generate] then
+          if lJSON.B[TConfigKey.controller_crud_methods_generate] or lJSON.B[TConfigKey.program_service_container_generate] then
           begin
             EntityCreator := TNewGenericUnitFromTemplate.Create(
               lJSON,
@@ -181,6 +187,23 @@ begin
             end;
           end;
 
+          // Create WebSocket Server Unit
+          if lJSON.B[TConfigKey.websocket_generate] then
+          begin
+            WebSocketServerCreator := TNewGenericUnitFromTemplate.Create(
+              lJSON,
+              FillWebSocketServerTemplates,
+              TConfigKey.websocket_unit_name,
+              APersonality);
+            WebSocketServerUnit := ModuleServices.CreateModule(WebSocketServerCreator);
+            ChangeIOTAModuleFileNamePrefix(WebSocketServerUnit, 'WebSocketServerU');
+            lJSON.S[TConfigKey.websocket_unit_name] := TPath.GetFileNameWithoutExtension(WebSocketServerUnit.FileName);
+            if Project <> nil then
+            begin
+              Project.AddFile(WebSocketServerUnit.FileName, True);
+            end;
+          end;
+
 
           lJSONRPCUnitName := '';
           // Create JSONRPC Unit
@@ -201,17 +224,18 @@ begin
             end;
           end;
 
+          {********** SERVER SIDE VIEWS TEMPLATE ENGINE CONFIGURATION **************}
 
           lMustacheHelpersUnitName := '';
           // Create Mustache Helpers Unit
           if lJSON.B[TConfigKey.program_ssv_mustache] then
           begin
-            MustacheHelpersUnitCreator := TNewGenericUnitFromTemplate.Create(
+            HelpersUnitCreator := TNewGenericUnitFromTemplate.Create(
               lJSON,
               FillMustacheTemplates,
               TConfigKey.mustache_helpers_unit_name,
               APersonality);
-            MustacheHelperUnit := ModuleServices.CreateModule(MustacheHelpersUnitCreator);
+            MustacheHelperUnit := ModuleServices.CreateModule(HelpersUnitCreator);
             ChangeIOTAModuleFileNamePrefix(MustacheHelperUnit, 'MustacheHelpers');
             lMustacheHelpersUnitName := GetUnitName(MustacheHelperUnit.FileName);
             lJSON.S[TConfigKey.mustache_helpers_unit_name] := lMustacheHelpersUnitName;
@@ -221,11 +245,48 @@ begin
             end;
           end;
 
+          lTemplateProHelpersUnitName := '';
+          // Create TemplatePro Helpers Unit
+          if lJSON.B[TConfigKey.program_ssv_templatepro] then
+          begin
+            HelpersUnitCreator := TNewGenericUnitFromTemplate.Create(
+              lJSON,
+              FillTemplateProTemplates,
+              TConfigKey.templatepro_helpers_unit_name,
+              APersonality);
+            TemplateProHelperUnit := ModuleServices.CreateModule(HelpersUnitCreator);
+            ChangeIOTAModuleFileNamePrefix(TemplateProHelperUnit, 'TemplateProHelpers');
+            lTemplateProHelpersUnitName := GetUnitName(TemplateProHelperUnit.FileName);
+            lJSON.S[TConfigKey.templatepro_helpers_unit_name] := lTemplateProHelpersUnitName;
+            if Project <> nil then
+            begin
+              Project.AddFile(TemplateProHelperUnit.FileName, True);
+            end;
+          end;
+
+          lWebStencilsHelpersUnitName := '';
+          // Create WebStencils Helpers Unit
+          if lJSON.B[TConfigKey.program_ssv_webstencils] then
+          begin
+            HelpersUnitCreator := TNewGenericUnitFromTemplate.Create(
+              lJSON,
+              FillWebStencilsTemplates,
+              TConfigKey.webstencils_helpers_unit_name,
+              APersonality);
+            WebStencilsHelperUnit := ModuleServices.CreateModule(HelpersUnitCreator);
+            ChangeIOTAModuleFileNamePrefix(WebStencilsHelperUnit, 'WebStencilsHelpers');
+            lWebStencilsHelpersUnitName := GetUnitName(WebStencilsHelperUnit.FileName);
+            lJSON.S[TConfigKey.webstencils_helpers_unit_name] := lWebStencilsHelpersUnitName;
+            if Project <> nil then
+            begin
+              Project.AddFile(WebStencilsHelperUnit.FileName, True);
+            end;
+          end;
+
+          {******** END - SERVER SIDE VIEWS TEMPLATE ENGINE CONFIGURATION ************}
 
           // Create Webmodule Unit
-          WebModuleCreator := TNewWebModuleUnitEx.Create(
-            lJSON,
-            APersonality);
+          WebModuleCreator := TNewWebModuleUnitEx.Create(lJSON, APersonality);
           WebModuleUnit := ModuleServices.CreateModule(WebModuleCreator);
           ChangeIOTAModuleFileNamePrefix(WebModuleUnit, lJSON.S[TConfigKey.webmodule_classname].SubString(1));
           lJSON.S[TConfigKey.webmodule_unit_name] := TPath.GetFileNameWithoutExtension(WebModuleUnit.FileName);
@@ -238,7 +299,7 @@ begin
         WizardForm.Free;
       end;
     end,
-    function: Cardinal
+    function: {$IFDEF WIN32}Cardinal{$ELSE}UInt64{$ENDIF}
     begin
       Result := LoadIcon(HInstance, 'DMVCNewProjectIcon');
     end, TArray<string>.Create(cWin32Platform, cWin64Platform

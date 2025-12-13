@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -58,7 +58,7 @@ type
     /// The Access-Control-Allow-Methods response header specifies the method or methods allowed when accessing the resource in response to a preflight request.
     /// Source: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Methods
     /// </summary>
-    ALLOWS_METHODS = 'POST,GET,OPTIONS,PUT,DELETE';
+    ALLOWS_METHODS = 'POST,GET,OPTIONS,PUT,DELETE,PATCH';
     /// <summary>
     /// Indicates the number of seconds (60 by default) the information provided by
     /// the `Access-Control-Allow-Methods` and `Access-Control-Allow-Headers` headers can be cached.

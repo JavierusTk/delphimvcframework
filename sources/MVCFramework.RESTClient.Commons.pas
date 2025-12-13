@@ -2,12 +2,12 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
 // Collaborators on this file:
-// Jo�o Ant�nio Duarte (https://github.com/joaoduarte19)
+// João Antônio Duarte (https://github.com/joaoduarte19)
 //
 // ***************************************************************************
 //
@@ -71,6 +71,8 @@ type
   end;
 
   EMVCRESTClientException = class(Exception);
+
+  EMVCRESTClientHttpException = class(EMVCRESTClientException);
 
   TMVCRESTClientConsts = record
   public const

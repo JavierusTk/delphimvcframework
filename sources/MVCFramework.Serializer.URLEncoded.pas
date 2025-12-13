@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -119,7 +119,7 @@ type
 implementation
 
 uses
-  System.NetEncoding, System.Math, JsonDataObjects;
+  System.NetEncoding, System.Math, JsonDataObjects, MVCFramework.Nullables;
 
 { TMVCURLEncodedSerializer }
 
@@ -422,6 +422,18 @@ procedure TMVCURLEncodedSerializer.DataValueToAttribute(const AObject: TObject; 
   const AIgnored: TMVCIgnoredList; const ACustomAttributes: TArray<TCustomAttribute>);
 var
   RttiType: TRttiType;
+  lTmp: String;
+  lValueTypeInfo: PTypeInfo;
+  lOutInteger: Integer;
+  lOutInteger64: Int64;
+  lOutUInteger64: UInt64;
+  lOutSingle: Double;
+  lOutDouble: Double;
+  lOutExtended: Extended;
+  lOutUInteger: Cardinal;
+  lOutNullableTDate: NullableTDate;
+  lOutNullableTDateTime: NullableTDateTime;
+  lOutNullableTTime: NullableTTime;
 begin
   RttiType := nil;
   AValue.Empty;
@@ -432,6 +444,7 @@ begin
       RttiType := TRttiField(ARttiMember).FieldType;
   end;
 
+
   case RttiType.TypeKind of
     tkString, tkWideString, tkAnsiString, tkUString:
       AValue := TNetEncoding.URL.Decode(RawData);
@@ -440,12 +453,141 @@ begin
     tkInt64:
       AValue := RawData.ToInt64;
     tkFloat:
-      AValue := RawData.ToDouble;
+      begin
+        lTmp := RttiType.ToString;
+        if SameText(lTmp, 'tdate') then
+          AValue := ISODateToDate(RawData)
+        else if SameText(lTmp, 'ttime') then
+          AValue := ISOTimeToTime(RawData)
+        else if SameText(lTmp, 'tdatetime') then
+          AValue := ISOTimeStampToDateTime(RawData)
+        else
+          AValue := RawData.ToDouble;
+      end;
     tkEnumeration:
       begin
         if SameText(RttiType.ToString, 'boolean') then
           AValue := RawData.ToBoolean;
       end;
+    tkRecord:
+    begin
+      if String(RttiType.Handle^.Name).StartsWith('Nullable', True) then
+      begin
+        lValueTypeInfo := AValue.TypeInfo;
+        if lValueTypeInfo = TypeInfo(NullableString) then
+        begin
+          AValue := TValue.From<NullableString>(RawData);
+        end
+        else if lValueTypeInfo = TypeInfo(NullableInt32) then
+        begin
+          if TryStrToInt(RawData, lOutInteger) then
+            AValue := TValue.From<NullableInt32>(lOutInteger)
+          else
+            AValue := TValue.Empty;
+        end
+        else if lValueTypeInfo = TypeInfo(NullableUInt32) then
+        begin
+          if TryStrToUInt(RawData, lOutUInteger) then
+            AValue := TValue.From<NullableUInt32>(lOutUInteger)
+          else
+            AValue := TValue.Empty;
+        end
+        else if lValueTypeInfo = TypeInfo(NullableInt16) then
+        begin
+          if TryStrToInt(RawData, lOutInteger) then
+            AValue := TValue.From<NullableInt16>(lOutInteger)
+          else
+            AValue := TValue.Empty;
+        end
+        else if lValueTypeInfo = TypeInfo(NullableUInt16) then
+        begin
+          if TryStrToUInt(RawData, lOutUInteger) then
+            AValue := TValue.From<NullableUInt16>(lOutUInteger)
+          else
+            AValue := TValue.Empty;
+        end
+        else if lValueTypeInfo = TypeInfo(NullableInt64) then
+        begin
+          if TryStrToInt64(RawData, lOutInteger64) then
+            AValue := TValue.From<NullableInt64>(lOutInteger64)
+          else
+            AValue := TValue.Empty;
+        end
+        else if lValueTypeInfo = TypeInfo(NullableUInt64) then
+        begin
+          if TryStrToUInt64(RawData, lOutUInteger64) then
+            AValue := TValue.From<NullableUInt64>(lOutUInteger64)
+          else
+            AValue := TValue.Empty;
+        end
+        else if (lValueTypeInfo = TypeInfo(NullableSingle)) then
+        begin
+          if TryStrToFloat(RawData, lOutSingle) then
+            AValue := TValue.From<NullableSingle>(lOutSingle)
+          else
+            AValue := TValue.Empty;
+        end
+        else if (lValueTypeInfo = TypeInfo(NullableDouble)) then
+        begin
+          if TryStrToFloat(RawData, lOutDouble) then
+            AValue := lOutDouble
+          else
+            AValue := TValue.Empty;
+        end
+        else if (lValueTypeInfo = TypeInfo(NullableExtended)) then
+        begin
+          if TryStrToFloat(RawData, lOutExtended) then
+            AValue := lOutExtended
+          else
+            AValue := TValue.Empty;
+        end
+        { date and time related types}
+        else if (lValueTypeInfo = TypeInfo(NullableTDateTime)) then
+        begin
+          if RawData.IsEmpty then
+          begin
+            lOutNullableTDateTime.Clear;
+          end
+          else
+          begin
+            lOutNullableTDateTime := ISOTimeStampToDateTime(RawData);
+          end;
+          AValue := TValue.From<NullableTDateTime>(lOutNullableTDateTime);
+        end
+        else if (lValueTypeInfo = TypeInfo(NullableTDate)) then
+        begin
+          if RawData.IsEmpty then
+          begin
+            lOutNullableTDate.Clear;
+          end
+          else
+          begin
+            lOutNullableTDate := ISODateToDate(RawData);
+          end;
+          AValue := TValue.From<NullableTDate>(lOutNullableTDate);
+        end
+        else if (lValueTypeInfo = TypeInfo(NullableTTime)) then
+        begin
+          if RawData.IsEmpty then
+          begin
+            lOutNullableTTime.Clear;
+          end
+          else
+          begin
+            lOutNullableTTime := ISOTimeToTime(RawData);
+          end;
+          AValue := TValue.From<NullableTTime>(lOutNullableTTime);
+        end
+        else
+        begin
+          raise EMVCDeserializationException.Create('(DataValueToAttribute) Cannot deserialize Nullable type ' + String(RttiType.Handle^.Name));
+        end;
+      end
+      else
+      begin
+        raise EMVCDeserializationException.Create('(DataValueToAttribute) Invalid Record Type ' + String(RttiType.Handle^.Name));
+      end;
+    end
     else
       raise EMVCDeserializationException.Create('(DataValueToAttribute) Invalid TypeKind: ' + GetEnumName(TypeInfo(TTypeKind), Ord(RttiType.TypeKind)));
   end;
@@ -478,4 +620,3 @@ end;
 
 
 end.
-

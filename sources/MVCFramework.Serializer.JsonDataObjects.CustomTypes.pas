@@ -1,8 +1,8 @@
-// ***************************************************************************
+﻿// ***************************************************************************
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -169,6 +169,7 @@ type
 implementation
 
 uses
+  System.SysConst,
   Data.DB,
   MVCFramework.DuckTyping,
   System.Generics.Collections,
@@ -360,12 +361,16 @@ procedure TMVCGUIDSerializer.SerializeAttribute(const AElementValue: TValue; con
   const ASerializerObject: TObject; const AAttributes: TArray<TCustomAttribute>);
 var
   lGuid: TGUID;
+  lGuidSerializationType: TMVCGuidSerializationType;
+  lGuidSerializationAttr: MVCGuidSerializationAttribute;
 begin
   lGuid := AElementValue.AsType<TGUID>;
-  if TMVCSerializerHelper.AttributeExists<MVCSerializeGuidWithoutBracesAttribute>(AAttributes) then
-    (ASerializerObject as TJDOJsonObject).S[APropertyName] := TMVCGuidHelper.GUIDToStringEx(lGuid)
-  else
-    (ASerializerObject as TJDOJsonObject).S[APropertyName] := lGuid.ToString;
+  lGuidSerializationType := TMVCGuidSerializationType.gstUseDefault;
+  if TMVCSerializerHelper.AttributeExists<MVCGuidSerializationAttribute>(AAttributes, lGuidSerializationAttr) then
+  begin
+    lGuidSerializationType := lGuidSerializationAttr.GuidSerializationType;
+  end;
+  (ASerializerObject as TJDOJsonObject).S[APropertyName] := TMVCSerializerHelper.ApplyGuidSerialization(lGuidSerializationType, lGuid);
 end;
 
 procedure TMVCGUIDSerializer.SerializeRoot(const AObject: TObject; out ASerializerObject: TObject;

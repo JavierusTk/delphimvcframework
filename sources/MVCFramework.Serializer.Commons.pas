@@ -2,7 +2,7 @@
 //
 // Delphi MVC Framework
 //
-// Copyright (c) 2010-2024 Daniele Teti and the DMVCFramework Team
+// Copyright (c) 2010-2025 Daniele Teti and the DMVCFramework Team
 //
 // https://github.com/danieleteti/delphimvcframework
 //
@@ -68,10 +68,17 @@ type
 
   TMVCEnumSerializationType = (estEnumName, estEnumOrd, estEnumMappedValues);
 
+  /// <summary>
+  ///  Default: Braces
+  ///  Digits: 00000000000000000000000000000000
+  ///  Dashes: 00000000-0000-0000-0000-000000000000
+  ///  Braces: {00000000-0000-0000-0000-000000000000}
+  /// </summary>
+  TMVCGuidSerializationType = (gstUseDefault, gstDigits, gstDashes, gstBraces);
+
   TMVCIgnoredList = array of string;
 
-  TMVCSerializationAction<T: class> = reference to procedure(const AObject: T;
-    const Links: IMVCLinks);
+  TMVCSerializationAction<T: class> = reference to procedure(const AObject: T; const Links: IMVCLinks);
   TMVCSerializationAction = reference to procedure(const AObject: TObject; const Links: IMVCLinks);
   TMVCDataSetSerializationAction = reference to procedure(const ADataSet: TDataset;
     const Links: IMVCLinks);
@@ -184,7 +191,6 @@ type
     property MappedValues: TList<string> read FMappedValues;
   end;
 
-
   MVCOwnedAttribute = class(TCustomAttribute)
   private
     fClassRef: TClass;
@@ -192,26 +198,48 @@ type
     constructor Create(const ClassRef: TClass = nil);
     property ClassRef: TClass read fClassRef;
   end;
-  
+
+  MVCGuidSerializationAttribute  = class(TCustomAttribute)
+  private
+    FGuidSerializationType: TMVCGuidSerializationType;
+  public
+    constructor Create(const AGuidSerializationType: TMVCGuidSerializationType);
+    property GuidSerializationType: TMVCGuidSerializationType read FGuidSerializationType;
+  end;
+
+  MVCGuidSerializationDigitsAttribute = class(MVCGuidSerializationAttribute)
+  public
+    constructor Create;
+  end;
+
+  MVCGuidSerializationDashesAttribute = class(MVCGuidSerializationAttribute)
+  public
+    constructor Create;
+  end;
+
+  MVCGuidSerializationBracesAttribute = class(MVCGuidSerializationAttribute)
+  public
+    constructor Create;
+  end;
+
   /// <summary>
   ///  Use this attribute in the model class to define a field of type TGuid if at the time of attribute serialization the value
   ///  of the guid field will be obtained without braces.
   ///  Sample: 61013848-8736-4d8b-ad25-91df4c255561
   /// </summary>
-  MVCSerializeGuidWithoutBracesAttribute = class(TCustomAttribute);
+  MVCSerializeGuidWithoutBracesAttribute = MVCGuidSerializationDashesAttribute  deprecated 'Use MVCGuidSerializationDashesAttribute';
 
   TMVCSerializerHelper = record
   private
     { private declarations }
   public
     class function ApplyNameCase(NameCase: TMVCNameCase; const Value: string): string; static; inline;
-    class function GetKeyName(const AField: TRttiField; const AType: TRttiType): string;
-      overload; static;
-    class function GetKeyName(const AProperty: TRttiProperty; const AType: TRttiType): string;
-      overload; static;
+    class function ApplyGuidSerialization(AGuidSerialization: TMVCGuidSerializationType; const AValue: TGuid): string; static; inline;
+    class function GetKeyName(const AField: TRttiField; const AType: TRttiType): string; overload; static;
+    class function GetKeyName(const AProperty: TRttiProperty; const AType: TRttiType): string; overload; static;
+    class function GetPropertyKeyName(const APropertyName: String; const AClass: TClass): string; static;
     class function HasAttribute<T: class>(const AMember: TRttiObject): Boolean; overload; static;
-    class function HasAttribute<T: class>(const AMember: TRttiObject; out AAttribute: T): Boolean;
-      overload; static;
+    class function HasAttribute<T: class>(const AMember: TRttiObject; out AAttribute: T): Boolean; overload; static;
     class function AttributeExists<T: TCustomAttribute>(const AAttributes: TArray<TCustomAttribute>;
       out AAttribute: T): Boolean; overload; static; inline;
     class function AttributeExists<T: TCustomAttribute>(const AAttributes: TArray<TCustomAttribute>)
@@ -421,6 +449,7 @@ var
 
 var
   MVCNameCaseDefault: TMVCNameCase = TMVCNameCase.ncLowerCase;
+  MVCGuidSerializationTypeDefault: TMVCGuidSerializationType = TMVCGuidSerializationType.gstBraces;
 
 function DateTimeToISOTimeStamp(const ADateTime: TDateTime): string;
 function DateToISODate(const ADate: TDateTime): string;
@@ -450,8 +479,8 @@ function StrDict: TMVCStringDictionary; overload;
 function StrDict(const aKeys: array of string; const aValues: array of string)
   : TMVCStringDictionary; overload;
 function ObjectDict(const OwnsValues: Boolean = True): IMVCObjectDictionary;
-function GetPaginationMeta(const CurrPageNumber: UInt32; const CurrPageSize: UInt32;
-  const DefaultPageSize: UInt32; const URITemplate: string): TMVCStringDictionary;
+function GetPaginationData(const CurrPageNumber: UInt32; const CurrPageSize: UInt32;
+  const DefaultPageSize: UInt32; const URITemplate: string; const IncludePrevURI: Boolean = True): TMVCStringDictionary;
 procedure RaiseSerializationError(const Msg: string);
 procedure RaiseDeSerializationError(const Msg: string);
 
@@ -478,25 +507,31 @@ begin
   Result := TMVCStringDictionary.Create;
 end;
 
-function GetPaginationMeta(const CurrPageNumber: UInt32; const CurrPageSize: UInt32;
-  const DefaultPageSize: UInt32; const URITemplate: string): TMVCStringDictionary;
+function GetPaginationData(const CurrPageNumber: UInt32; const CurrPageSize: UInt32;
+  const DefaultPageSize: UInt32; const URITemplate: string; const IncludePrevURI: Boolean): TMVCStringDictionary;
 var
   lMetaKeys: array of string;
   lMetaValues: array of string;
 begin
-  Insert('curr_page', lMetaKeys, 0);
+  Insert('page_num', lMetaKeys, 0);
   Insert(CurrPageNumber.ToString(), lMetaValues, 0);
 
-  if CurrPageNumber > 1 then
+  Insert('page_size', lMetaKeys, 0);
+  Insert(CurrPageSize.ToString(), lMetaValues, 0);
+
+  Insert('default_page_size', lMetaKeys, 0);
+  Insert(DefaultPageSize.ToString(), lMetaValues, 0);
+
+  if (CurrPageNumber > 1) and IncludePrevURI then
   begin
     Insert('prev_page_uri', lMetaKeys, 0);
-    Insert(Format(URITemplate, [(CurrPageNumber - 1)]), lMetaValues, 0);
+    Insert(URITemplate.Replace('($page)', (CurrPageNumber - 1).ToString), lMetaValues, 0);
   end;
 
   if CurrPageSize = DefaultPageSize then
   begin
     Insert('next_page_uri', lMetaKeys, 0);
-    Insert(Format(URITemplate, [(CurrPageNumber + 1)]), lMetaValues, 0);
+    Insert(URITemplate.Replace('($page)',(CurrPageNumber + 1).ToString), lMetaValues, 0);
   end;
   Result := StrDict(lMetaKeys, lMetaValues);
 end;
@@ -629,7 +664,15 @@ begin
   begin
     if Attr is MVCNameAsAttribute then
     begin
-      Exit(MVCNameAsAttribute(Attr).Name);
+      Result := MVCNameAsAttribute(Attr).Name;
+      if MVCNameAsAttribute(Attr).Fixed then { if FIXED the attribute NameAs remains untouched }
+      begin
+        Exit
+      end
+      else
+      begin
+        Break;
+      end;
     end;
   end;
 
@@ -641,6 +684,7 @@ begin
       Exit(TMVCSerializerHelper.ApplyNameCase(MVCNameCaseAttribute(Attr).KeyCase, AField.Name));
     end;
   end;
+  Result := TMVCSerializerHelper.ApplyNameCase(MVCNameCaseDefault, Result);
 end;
 
 class function TMVCSerializerHelper.AttributeExists<T>(const AAttributes: TArray<TCustomAttribute>;
@@ -656,6 +700,23 @@ begin
       Break;
     end;
   Result := (AAttribute <> nil);
+end;
+
+class function TMVCSerializerHelper.ApplyGuidSerialization(AGuidSerialization: TMVCGuidSerializationType; const AValue: TGuid): string;
+begin
+  if AGuidSerialization = TMVCGuidSerializationType.gstUseDefault then
+  begin
+    AGuidSerialization := MVCGuidSerializationTypeDefault;
+  end;
+
+  case AGuidSerialization of
+    gstDigits:
+      Result := TMVCGuidHelper.GUIDToStringEx(AValue).Replace('-', '');
+    gstDashes:
+      Result := TMVCGuidHelper.GUIDToStringEx(AValue);
+    gstBraces:
+      Result := AValue.ToString;
+  end;
 end;
 
 class function TMVCSerializerHelper.ApplyNameCase(NameCase: TMVCNameCase;
@@ -846,6 +907,34 @@ begin
     end;
   end;
   Result := TMVCSerializerHelper.ApplyNameCase(MVCNameCaseDefault, Result);
+end;
+
+class function TMVCSerializerHelper.GetPropertyKeyName(const APropertyName: String; const AClass: TClass): string;
+var
+  Context: TRttiContext;
+  ObjectType: TRttiType;
+  lProp: TRttiProperty;
+begin
+{$IF not Defined(TokyoOrBetter)}
+  Result := nil;
+{$ENDIF}
+  Context := TRttiContext.Create;
+  try
+    ObjectType := Context.FindType(AClass.QualifiedClassName);
+    if not Assigned(ObjectType) then
+      raise Exception.CreateFmt
+        ('Cannot find RTTI for %s. Hint: Is the specified classtype linked in the module?',
+        [AClass.QualifiedClassName])
+    else
+    begin
+      lProp := ObjectType.GetProperty(APropertyName);
+      if not Assigned(lProp) then
+        raise Exception.Create('Cannot find property ' + APropertyName);
+      Result := TMVCSerializerHelper.GetKeyName(lProp, ObjectType);
+    end;
+  finally
+    Context.Free;
+  end;
 end;
 
 class function TMVCSerializerHelper.GetTypeKindAsString(const ATypeKind: TTypeKind): string;
@@ -1153,7 +1242,7 @@ begin
         end;
         // aRTTIField.SetValue(AObject, AField.AsString);
       end;
-    ftLargeint, ftAutoInc:
+    ftLargeInt, ftAutoInc:
       begin
         aRTTIField.SetValue(AObject, AField.AsLargeInt);
       end;
@@ -1361,7 +1450,7 @@ begin
   begin
     if AField.IsNull then
     begin
-      aRTTIField.GetValue(AObject).AsType<NullableString>().Clear;
+      aRTTIField.SetValue(AObject, TValue.From<NullableString>(nil));
     end
     else
     begin
@@ -1903,7 +1992,34 @@ begin
 end;
 
 
+{ MVCGuidSerializationAttribute }
 
+constructor MVCGuidSerializationAttribute.Create(const AGuidSerializationType: TMVCGuidSerializationType);
+begin
+  inherited Create;
+  FGuidSerializationType := AGuidSerializationType;
+end;
+
+{ MVCGuidSerializationDigitsAttribute }
+
+constructor MVCGuidSerializationDigitsAttribute.Create;
+begin
+  inherited Create(gstDigits);
+end;
+
+{ MVCGuidSerializationDashesAttribute }
+
+constructor MVCGuidSerializationDashesAttribute.Create;
+begin
+  inherited Create(gstDashes);
+end;
+
+{ MVCGuidSerializationBracesAttribute }
+
+constructor MVCGuidSerializationBracesAttribute.Create;
+begin
+  inherited Create(gstBraces);
+end;
 
 initialization
 
